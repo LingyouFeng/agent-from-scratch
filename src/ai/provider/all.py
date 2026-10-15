@@ -1,8 +1,8 @@
-from agent import Model, Provider, ProviderId
-from agent import deepseek_provder
+from src.ai.model import Model, Provider, ProviderId
+from src.ai.provider.deepseek import deepseek_provider
 
 _PROVIDER_MAP: dict[ProviderId, Provider] = {
-    "deepseek": deepseek_provder(),
+    "deepseek": deepseek_provider(),
 }
 
 

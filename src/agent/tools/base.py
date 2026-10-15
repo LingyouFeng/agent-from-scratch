@@ -12,6 +12,7 @@ class BaseTool(ABC, Generic[ArgsT]):
     name: ClassVar[str]
     description: ClassVar[str]
     parameters: type[ArgsT]
+    concurrent_safety: ClassVar[bool] = False
 
     def execute(self, **kwargs) -> str:
         """统一执行入口：校验参数后调用子类的业务逻辑。"""
@@ -19,7 +20,7 @@ class BaseTool(ABC, Generic[ArgsT]):
             args = self.parameters.model_validate(kwargs)
             return self._execute(args)
         except ValidationError as e:
-            return f"无效参数: {e}"
+            return f"Invalid Arguments: {e}"
 
     @abstractmethod
     def _execute(self, args: ArgsT) -> str:

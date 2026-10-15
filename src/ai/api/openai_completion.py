@@ -3,6 +3,7 @@
 """
 
 import json
+from typing import Iterator
 
 from openai import (
     APIConnectionError,
@@ -28,12 +29,11 @@ from src.ai.type import (
 from src.util.time_util import get_timestamp_ms
 
 
-def stream(model: Model, context: Context, options: StreamOptions | None = None) -> AssistantMessage:
-
+def stream(model: Model, context: Context, options: StreamOptions | None = None) -> AssistantMessage | Iterator[AssistantMessage]:
     provider = get_provider_by_id(model.provider)
     if provider is None:
         raise ValueError(f"No built-in provider {provider} with model {model.id}")
-    
+
     client = OpenAI(api_key=provider.api_key, base_url=provider.base_url)
 
     # 组装请求messages：系统提示 + 历史消息
@@ -44,6 +44,7 @@ def stream(model: Model, context: Context, options: StreamOptions | None = None)
         converted for msg in context.messages if (converted := convert_message(msg))
     )
 
+    # 注入工具
     api_tools: list[ChatCompletionFunctionToolParam] = []
     if context.tools:
         for t in context.tools:
@@ -58,87 +59,113 @@ def stream(model: Model, context: Context, options: StreamOptions | None = None)
             api_tools.append(tool)
 
     try:
+        stream_enabled = options.stream if options else False
         response = client.chat.completions.create(
             model=model.name,
             messages=api_messages,
-            stream=True,
+            stream=stream_enabled,
             stream_options={"include_usage": True},
             tools=api_tools,
+            reasoning_effort="none",
         )
 
-        text_buffer = ""
-        thinking_buffer = ""
-        tool_buffers: dict[int, str] = {}
-        tool_calls: list[ToolCall] = []
+        if stream_enabled:
+            tool_call_buffers: list[ToolCall] = []
+            tool_args_buffers: dict[int, str] = {}
 
-        for chunk in response:
-            if not chunk.choices:
-                continue
-            choice = chunk.choices[0]
-            delta = choice.delta
+            for chunk in response:
+                if not chunk.choices:
+                    continue
+                choice = chunk.choices[0]
+                delta = choice.delta
 
-            # 普通文本
-            if delta.content:
-                text_buffer += delta.content
-                print(delta.content, end="", flush=True)
+                # 普通文本
+                if delta.content:
+                    yield AssistantMessage(
+                        role="assistant",
+                        content=[TextContent(type="text", text=delta.content)],
+                        timestamp=get_timestamp_ms(),
+                    )
 
-            # 工具调用
-            if delta.tool_calls:
-                for tc in delta.tool_calls:
-                    # 若 function 为 None，则无法提取有效信息，跳过该次迭代
-                    if tc.function is None:
-                        continue
+                # 收集工具调用
+                if delta.tool_calls:
+                    for tc in delta.tool_calls:
+                        # 若 function 为 None，则无法提取有效信息，跳过该次迭代
+                        if tc.function is None:
+                            continue
 
-                    # 确保 tool_calls 列表长度足够
-                    while len(tool_calls) <= tc.index:
-                        tool_calls.append(
-                            ToolCall(
-                                type="toolCall",
-                                id="",
-                                name="",
-                                arguments={},
+                        # 确保 tool_calls 列表长度足够
+                        while len(tool_call_buffers) <= tc.index:
+                            tool_call_buffers.append(
+                                ToolCall(
+                                    type="toolCall",
+                                    id="",
+                                    name="",
+                                    arguments={},
+                                )
                             )
-                        )
-                    if tc.index not in tool_buffers:
-                        tool_buffers[tc.index] = ""
+                        if tc.index not in tool_args_buffers:
+                            tool_args_buffers[tc.index] = ""
 
-                    tool_call = tool_calls[tc.index]
+                        tool_call = tool_call_buffers[tc.index]
 
-                    # 更新 id（可能是在当前或后续 chunk 中提供）
-                    if tc.id is not None:
-                        tool_call.id = tc.id
+                        # 更新 id（可能是在当前或后续 chunk 中提供）
+                        if tc.id is not None:
+                            tool_call.id = tc.id
 
-                    # 更新 function name（可能是在后续 chunk 中提供）
-                    if tc.function.name is not None:
-                        tool_call.name = tc.function.name
+                        # 更新 function name（可能是在后续 chunk 中提供）
+                        if tc.function.name is not None:
+                            tool_call.name = tc.function.name
 
-                    # 拼接 arguments 的原始 JSON 字符串
-                    if tc.function.arguments is not None:
-                        tool_buffers[tc.index] += tc.function.arguments
+                        # 拼接 arguments 的原始 JSON 字符串
+                        if tc.function.arguments is not None:
+                            tool_args_buffers[tc.index] += tc.function.arguments
 
-        # 流结束之后，一次性解析所有tool arguments
-        for idx, raw_json in tool_buffers.items():
-            if not raw_json.strip():
-                continue
-            try:
-                args_dict = json.loads(raw_json)
-                tool_calls[idx].arguments = args_dict
-            except json.JSONDecodeError:
-                print(f"\ntool {idx} arguments json解析失败, raw={raw_json}")
+                        # 尝试去解析工具调用
+                        raw_json = tool_args_buffers[tc.index]
+                        try:
+                            arguments = json.loads(raw_json)
+                            tool_call.arguments = arguments
+                            print(f"\ntool {tool_call.name} arguments json解析成功，直接返回")
+                            yield AssistantMessage(
+                                role="assistant",
+                                content=[tool_call],
+                                timestamp=get_timestamp_ms(),
+                            )
 
-        # 组装content数组
-        content_list: list[TextContent | ThinkingContent | ToolCall] = []
-        if thinking_buffer:
-            content_list.append(
-                ThinkingContent(type="thinking", thinking=thinking_buffer)
+                        except json.JSONDecodeError as e:
+                            print(f"\ntool {tool_call.name} arguments json解析失败！继续等待后续片段, raw={raw_json}")
+
+        else:
+            # 非流式
+            content_list: list[TextContent | ThinkingContent | ToolCall] = []
+            message = response.choices[0].message
+
+            if message:
+                content_list.append(TextContent(type="text", text=message.content))
+
+            for tc in message.tool_calls or []:
+                try:
+                    arguments = json.loads(tc.function.arguments or "{}")
+                except json.JSONDecodeError as e:
+                    raise ValueError(
+                        f"Tool {tc.function.name} arguments JSON 解析失败"
+                    ) from e
+
+                content_list.append(
+                    ToolCall(
+                        type="toolCall",
+                        id=tc.id,
+                        name=tc.function.name,
+                        arguments=arguments,
+                    )
+                )
+
+            return AssistantMessage(
+                role="assistant",
+                content=content_list,
+                timestamp=get_timestamp_ms(),
             )
-        if text_buffer:
-            content_list.append(TextContent(type="text", text=text_buffer))
-        content_list.extend(tool_calls)
-
-        return AssistantMessage(
-            role="assistant", content=content_list, timestamp=get_timestamp_ms()
-        )
 
     except (RateLimitError, APITimeoutError, APIConnectionError) as e:
         print(f"\n遇到异常 {type(e).__name__}")

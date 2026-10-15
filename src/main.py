@@ -1,12 +1,26 @@
 import sys
 import time
+from pathlib import Path
 
-from agent.agent_loop import run_loop
+from src.agent.agent_loop import run_loop
 from src.agent.tools.builtin import get_builtin_tools
+from src.ai.model import StreamOptions
 from src.ai.provider.all import get_builtin_models, get_model_by_id
 from src.ai.type import Context, TextContent, UserMessage
 
+WORKDIR = Path.cwd().resolve()
+SYSTEM_PROMPT = f"You are a cli coding agent at {WORKDIR}. Use tools to solve tasks. Act, don't explain."
+
 if __name__ == "__main__":
+
+    try:
+        import readline
+        readline.parse_and_bind("set bind-tty-special-chars off")
+        readline.parse_and_bind("set input-meta on")
+        readline.parse_and_bind("set output-meta on")
+        readline.parse_and_bind("set convert-meta off")
+    except ImportError:
+        pass
 
     print("内置模型：")
     builtin_models = get_builtin_models()
@@ -20,23 +34,22 @@ if __name__ == "__main__":
         print("不存在该模型")
         sys.exit(1)
 
-    systemPrompt = "你是一个ai助手"
     messages = []
     registry = get_builtin_tools()
 
     while True:
         try:
+            stream_option = StreamOptions()
+
             input_message = input("\033[36m User >> \033[0m")
             user_msg = UserMessage(
                 role="user",
                 content=[TextContent("text", input_message)],
                 timestamp=int(time.time() * 1000),
             )
-            print("\033[36m Assistant >> \033[0m")
             messages.append(user_msg)
-            context = Context(systemPrompt, messages, registry.get_all_tools())
-            run_loop(model, context)
-            print()
+            context = Context(SYSTEM_PROMPT, messages, registry.get_all_tools())
+            run_loop(model, context, stream_option)
         except (EOFError, KeyboardInterrupt):
             print("bye~")
             break

@@ -41,4 +41,5 @@ ThinkingLevel = Literal["off", "low", "medium", "high", "xhigh", "max"]
 
 @dataclass
 class StreamOptions:
-    thinking_level: ThinkingLevel
+    stream: bool = True
+    thinking_level: ThinkingLevel = "high"

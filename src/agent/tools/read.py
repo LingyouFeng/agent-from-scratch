@@ -29,6 +29,7 @@ class ReadFileTool(BaseTool[ReadFileArgs]):
         "Always read a file before editing it."
     )
     parameters: type[ReadFileArgs] = ReadFileArgs
+    concurrent_safety: ClassVar[bool] = True
 
     def _execute(self, args: ReadFileArgs) -> str:
         p = Path(args.file_path).expanduser().resolve()

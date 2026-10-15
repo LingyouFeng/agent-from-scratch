@@ -22,6 +22,7 @@ class WriteFileTool(BaseTool[WriteFileArgs]):
         "For small edits to existing files, prefer edit_file instead."
     )
     parameters: type[WriteFileArgs] = WriteFileArgs
+    concurrent_safety: ClassVar[bool] = False
 
     def _execute(self, args: WriteFileArgs) -> str:
         try:
