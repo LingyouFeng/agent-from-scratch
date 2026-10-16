@@ -17,7 +17,10 @@ class BaseTool(ABC, Generic[ArgsT]):
     def execute(self, **kwargs) -> str:
         """统一执行入口：校验参数后调用子类的业务逻辑。"""
         try:
+            # 参数验证
             args = self.parameters.model_validate(kwargs)
+            # 权限校验
+            # TODO
             return self._execute(args)
         except ValidationError as e:
             return f"Invalid Arguments: {e}"
