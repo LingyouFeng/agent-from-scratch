@@ -5,7 +5,7 @@ from typing import ClassVar
 
 from pydantic import BaseModel, Field
 
-from .base import BaseTool
+from agent.tools.base import BaseTool
 
 
 class WriteFileArgs(BaseModel):
@@ -24,7 +24,7 @@ class WriteFileTool(BaseTool[WriteFileArgs]):
     parameters: type[WriteFileArgs] = WriteFileArgs
     concurrent_safety: ClassVar[bool] = False
 
-    def _execute(self, args: WriteFileArgs) -> str:
+    def execute(self, args: WriteFileArgs) -> str:
         try:
             p = Path(args.file_path).expanduser().resolve()
             p.parent.mkdir(parents=True, exist_ok=True)

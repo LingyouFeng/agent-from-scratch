@@ -7,7 +7,7 @@ from typing import ClassVar
 
 from pydantic import BaseModel, Field
 
-from .base import BaseTool
+from agent.tools.base import BaseTool
 
 
 class BashArgs(BaseModel):
@@ -44,7 +44,7 @@ class BashTool(BaseTool[BashArgs]):
     parameters: type[BashArgs] = BashArgs
     concurrent_safety: ClassVar[bool] = False
 
-    def _execute(self, args: BashArgs) -> str:
+    def execute(self, args: BashArgs) -> str:
         if not args.command.strip():
             return "Error: command cannot be empty"
 

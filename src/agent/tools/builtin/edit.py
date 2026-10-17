@@ -6,7 +6,7 @@ from typing import ClassVar
 
 from pydantic import BaseModel, Field
 
-from .base import BaseTool
+from agent.tools.base import BaseTool
 
 
 class EditFileArgs(BaseModel):
@@ -35,7 +35,7 @@ class EditFileTool(BaseTool[EditFileArgs]):
     parameters: type[EditFileArgs] = EditFileArgs
     concurrent_safety: ClassVar[bool] = False
 
-    def _execute(self, args: EditFileArgs) -> str:
+    def execute(self, args: EditFileArgs) -> str:
         p = Path(args.file_path).expanduser().resolve()
 
         if not p.exists():

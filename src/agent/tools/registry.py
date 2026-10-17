@@ -3,13 +3,28 @@
 import json
 
 from src.ai.type import Tool
-
 from .base import BaseTool
+from .builtin.bash import BashTool
+from .builtin.edit import EditFileTool
+from .builtin.glob import GlobTool
+from .builtin.read import ReadFileTool
+from .builtin.write import WriteFileTool
 
 
 class ToolRegistry:
     def __init__(self):
+        self._builtin_tools: list[BaseTool] = [
+            ReadFileTool(),
+            WriteFileTool(),
+            EditFileTool(),
+            GlobTool(),
+            BashTool(),
+        ]
         self._tools: dict[str, BaseTool] = {}
+        self.register_all(self._builtin_tools)
+
+    def get(self, tool_name: str) -> BaseTool | None:
+        return self._tools.get(tool_name)
 
     def register(self, tool: BaseTool) -> None:
         if tool.name in self._tools:
@@ -17,9 +32,8 @@ class ToolRegistry:
 
         self._tools[tool.name] = tool
 
-    def get_schemas(self) -> list[dict]:
-        """获取所有工具的 Function Calling Schema。"""
-        return [tool.schema() for tool in self._tools.values()]
+    def register_all(self, tools: list[BaseTool]) -> None:
+        [self.register(tool) for tool in tools]
 
     def get_all_tools(self) -> list[Tool]:
         """获取所有注册的工具实例。"""
@@ -27,7 +41,7 @@ class ToolRegistry:
             Tool(
                 name=tool.name,
                 description=tool.description,
-                parameters=tool.parameters.model_json_schema(),
+                parameters=tool.schema(),
             )
             for tool in self._tools.values()
         ]

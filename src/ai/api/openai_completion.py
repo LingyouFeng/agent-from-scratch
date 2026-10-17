@@ -58,6 +58,9 @@ def stream(model: Model, context: Context, options: StreamOptions | None = None)
             )
             api_tools.append(tool)
 
+    # print("=" * 100)
+    # print(api_messages)
+    # print("=" * 100)
     try:
         stream_enabled = options.stream if options else False
         response = client.chat.completions.create(
@@ -126,7 +129,7 @@ def stream(model: Model, context: Context, options: StreamOptions | None = None)
                         try:
                             arguments = json.loads(raw_json)
                             tool_call.arguments = arguments
-                            print(f"\ntool {tool_call.name} arguments json解析成功，直接返回")
+                            # print(f"\ntool {tool_call.name} arguments json解析成功，直接返回")
                             yield AssistantMessage(
                                 role="assistant",
                                 content=[tool_call],
@@ -134,7 +137,8 @@ def stream(model: Model, context: Context, options: StreamOptions | None = None)
                             )
 
                         except json.JSONDecodeError as e:
-                            print(f"\ntool {tool_call.name} arguments json解析失败！继续等待后续片段, raw={raw_json}")
+                            pass
+                            # print(f"\ntool {tool_call.name} arguments json解析失败！继续等待后续片段, raw={raw_json}")
 
         else:
             # 非流式

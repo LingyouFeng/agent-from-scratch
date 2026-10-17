@@ -6,7 +6,7 @@ from typing import ClassVar
 
 from pydantic import BaseModel, Field
 
-from .base import BaseTool
+from agent.tools.base import BaseTool
 
 
 class GlobArgs(BaseModel):
@@ -35,7 +35,7 @@ class GlobTool(BaseTool[GlobArgs]):
     parameters: type[GlobArgs] = GlobArgs
     concurrent_safety: ClassVar[bool] = True
 
-    def _execute(self, args: GlobArgs) -> str:
+    def execute(self, args: GlobArgs) -> str:
         root = Path(args.path).expanduser().resolve()
 
         if not root.exists():

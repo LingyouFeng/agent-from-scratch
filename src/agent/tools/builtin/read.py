@@ -5,7 +5,7 @@ from typing import ClassVar
 
 from pydantic import BaseModel, Field
 
-from .base import BaseTool
+from agent.tools.base import BaseTool
 
 
 class ReadFileArgs(BaseModel):
@@ -31,7 +31,7 @@ class ReadFileTool(BaseTool[ReadFileArgs]):
     parameters: type[ReadFileArgs] = ReadFileArgs
     concurrent_safety: ClassVar[bool] = True
 
-    def _execute(self, args: ReadFileArgs) -> str:
+    def execute(self, args: ReadFileArgs) -> str:
         p = Path(args.file_path).expanduser().resolve()
 
         if not p.exists():
