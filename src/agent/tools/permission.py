@@ -1,8 +1,10 @@
+import glob
 import json
 import re
 from abc import abstractmethod, ABC
 from dataclasses import dataclass
 from enum import Enum
+from pathlib import Path
 from typing import Callable, Mapping, Any
 
 
@@ -32,18 +34,74 @@ class PermissionResult:
     reason: str
 
 
-RuleMatcher = Callable[[ToolRequest], tuple[bool, str]]
+# =====================================================================
+# 工作区
+# =====================================================================
+class WorkspaceScope:
+    """Classify file-tool arguments against one resolved workspace root.
+
+    ``resolve(strict=False)`` follows existing symlinks while still allowing a
+    not-yet-created final path.  That catches a write through ``workspace/link``
+    when the link points outside the workspace.  It is still a preflight check,
+    so production code also needs OS isolation to close time-of-check/time-of-use
+    races.
+    """
+
+    PATH_ARGUMENTS = {
+        "read_file": "file_path",
+        "write_file": "file_path",
+        "edit_file": "file_path",
+        "glob": "pattern",
+        "bash": ""
+    }
+
+    def __init__(self, root: Path) -> None:
+        self.root = root.expanduser().resolve(strict=True)
+
+    def argument_text(self, request: ToolRequest) -> str | None:
+        if not isinstance(request.arguments, Mapping):
+            return None
+        key = self.PATH_ARGUMENTS.get(request.name)
+        if key is None:
+            return None
+        raw = request.arguments.get(key)
+        return raw if isinstance(raw, str) and raw else None
+
+    def contains(self, request: ToolRequest) -> bool:
+        raw = self.argument_text(request)
+        if raw is None:
+            return False
+        candidate_text = self._static_glob_prefix(raw) if request.name == "glob" else raw
+        candidate = Path(candidate_text).expanduser()
+        if not candidate.is_absolute():
+            candidate = self.root / candidate
+        try:
+            return candidate.resolve(strict=False).is_relative_to(self.root)
+        except (OSError, RuntimeError):
+            # Resolution failures and symlink loops fail closed.
+            return False
+
+    @staticmethod
+    def _static_glob_prefix(pattern: str) -> str:
+        """Return the non-wildcard prefix whose directory scope can be checked."""
+
+        parts: list[str] = []
+        for part in Path(pattern).parts:
+            if glob.has_magic(part):
+                break
+            parts.append(part)
+        return str(Path(*parts)) if parts else "."
 
 
 @dataclass(frozen=True)
 class PermissionRule:
     rule_id: str
     rule_name: str
-    matcher: RuleMatcher
+    matcher: Callable[[ToolRequest, WorkspaceScope], tuple[bool, str]]
     tool_permission: ToolPermission
 
-    def match(self, tc: ToolRequest) -> PermissionResult | None:
-        is_match, reason = self.matcher(tc)
+    def match(self, tc: ToolRequest, ws: WorkspaceScope) -> PermissionResult | None:
+        is_match, reason = self.matcher(tc, ws)
         if not is_match:
             return None
         return PermissionResult(
@@ -122,13 +180,14 @@ class ConsoleApprover(Approver):
 # =====================================================================
 
 class PermissionPolicy:
-    def __init__(self, approver: Approver = ConsoleApprover()) -> None:
+    def __init__(self, workspace: WorkspaceScope, approver: Approver = ConsoleApprover()) -> None:
         self.rules = self._build_rules()
+        self.workspace = workspace
         self.approver = approver
 
     def _dispatch(self, tc: ToolRequest) -> PermissionResult | None:
         for rule in self.rules:
-            result = rule.match(tc)
+            result = rule.match(tc, self.workspace)
             if result is not None:
                 return result
 
@@ -159,6 +218,12 @@ class PermissionPolicy:
                 tool_permission=ToolPermission.DENY,
             ),
             PermissionRule(
+                rule_id="path_outside_workspace",
+                rule_name="路径在工作区外",
+                matcher=_path_outside_workspace,
+                tool_permission=ToolPermission.DENY,
+            ),
+            PermissionRule(
                 rule_id="only_read_allow",
                 rule_name="允许只读",
                 matcher=_only_read_allow,
@@ -179,6 +244,7 @@ class PermissionPolicy:
         )
 
 
+PATH_TOOLS = frozenset(WorkspaceScope.PATH_ARGUMENTS)
 READ_PATH_TOOLS = frozenset({"read_file", "glob"})
 WRITE_PATH_TOOLS = frozenset({"write_file", "edit_file"})
 HARD_DENY_PATTERNS = (
@@ -200,19 +266,27 @@ def _command(request: ToolRequest) -> str:
     return raw if isinstance(raw, str) else ""
 
 
-def _bash_is_hard_denied(request: ToolRequest) -> tuple[bool, str]:
+def _bash_is_hard_denied(request: ToolRequest, ws: WorkspaceScope) -> tuple[bool, str]:
     command = _command(request)
     return (request.name == "bash" and any(pattern.search(command) for pattern in HARD_DENY_PATTERNS),
             f"command matches a non-overridable deny rule: {_command(request)!r}")
 
 
-def _only_read_allow(request: ToolRequest) -> tuple[bool, str]:
-    return request.name in READ_PATH_TOOLS, "read-only file operation stays inside the workspace"
+def _path_outside_workspace(request: ToolRequest, ws: WorkspaceScope) -> tuple[bool, str]:
+    return (request.name in PATH_TOOLS and not ws.contains(request),
+            f"path {ws.argument_text(request)!r} resolves outside workspace {str(ws.root)!r}")
 
 
-def _write_requires_ask(request: ToolRequest) -> tuple[bool, str]:
-    return request.name in WRITE_PATH_TOOLS, f"{request.name} mutates workspace content and requires user approval"
+def _only_read_allow(request: ToolRequest, ws: WorkspaceScope) -> tuple[bool, str]:
+    return (request.name in READ_PATH_TOOLS and ws.contains(request),
+            "read-only file operation stays inside the workspace")
 
 
-def _bash_requires_ask(request: ToolRequest) -> tuple[bool, str]:
-    return request.name == "bash", f"shell strings cannot prove path scope or side effects; approval required: {_command(request)!r}"
+def _write_requires_ask(request: ToolRequest, ws: WorkspaceScope) -> tuple[bool, str]:
+    return (request.name in WRITE_PATH_TOOLS and ws.contains(request),
+            f"{request.name} mutates workspace content and requires user approval")
+
+
+def _bash_requires_ask(request: ToolRequest, ws: WorkspaceScope) -> tuple[bool, str]:
+    return (request.name == "bash",
+            f"shell strings cannot prove path scope or side effects; approval required: {_command(request)!r}")

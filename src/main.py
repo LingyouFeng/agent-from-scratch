@@ -31,7 +31,7 @@ if __name__ == "__main__":
         print(f"[{provider}]: {', '.join(m for m in models)}")
 
     # input_model = input("请输入你的模型：")
-    input_model = "deepseek-v4-flash"
+    input_model = "cmhi/deepseek-v4.1-flash"
     model = get_model_by_id(input_model)
     if model is None:
         print("不存在该模型")
@@ -40,7 +40,7 @@ if __name__ == "__main__":
     messages = []
     registry = ToolRegistry()
     tools = registry.get_all_tools()
-    agentLoop = AgentLoop(registry)
+    agentLoop = AgentLoop(WORKDIR, registry)
 
     while True:
         try:

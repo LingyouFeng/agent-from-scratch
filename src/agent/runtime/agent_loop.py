@@ -1,8 +1,9 @@
 import time
+from pathlib import Path
 
 from agent.hooks.manager import HookManager
 from agent.runtime.tool_executor import ToolExecutor
-from agent.tools.permission import PermissionPolicy
+from agent.tools.permission import PermissionPolicy, WorkspaceScope
 from agent.tools.registry import ToolRegistry
 from src.ai.api.all import get_stream_by_api
 from src.ai.model import Model
@@ -13,10 +14,10 @@ from util.time_util import get_timestamp_ms
 
 class AgentLoop:
 
-    def __init__(self, tool_registry: ToolRegistry):
+    def __init__(self, work_dir: Path, tool_registry: ToolRegistry):
         self._tool_executor = ToolExecutor(
             tool_registry,
-            PermissionPolicy(),
+            PermissionPolicy(WorkspaceScope(work_dir)),
             HookManager(),
         )
 
@@ -60,19 +61,21 @@ class AgentLoop:
                             content=[TextContent(type="text", text=tool_result)],
                             timestamp=int(time.time() * 1000),
                         ))
-
-            context.messages.extend([
+            context.messages.append(
                 AssistantMessage(
                     role="assistant",
                     content=[TextContent(type="text", text=text_content)],
-                    timestamp=get_timestamp_ms()),
-                AssistantMessage(
-                    role="assistant",
-                    content=tool_calls,
-                    timestamp=get_timestamp_ms()
-                ),
-                *tool_results
-            ])
+                    timestamp=get_timestamp_ms())
+            )
+            if len(tool_calls) > 0:
+                context.messages.extend([
+                    AssistantMessage(
+                        role="assistant",
+                        content=tool_calls,
+                        timestamp=get_timestamp_ms()
+                    ),
+                    *tool_results
+                ])
             print()
             if not has_tool_call:
                 break
