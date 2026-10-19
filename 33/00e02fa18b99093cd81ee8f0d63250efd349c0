@@ -1,0 +1,42 @@
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.0.8",
+  "base_commit_sha": "3300e02fa18b99093cd81ee8f0d63250efd349c0",
+  "prompts": {},
+  "commit_stats": {
+    "git_diff_added_lines": 328,
+    "git_diff_deleted_lines": 0,
+    "ai_additions": 0,
+    "ai_accepted": 0,
+    "BYMC": 328,
+    "mixed_additions": 0,
+    "BYAC": 0,
+    "BYRC": 0,
+    "per_file": {
+      "src/coding-agent/agent.py": {
+        "BYMC": [
+          "1-12"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      },
+      "src/coding-agent/type.py": {
+        "BYMC": [
+          "1-28"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      },
+      "src/tui/test.py": {
+        "BYMC": [
+          "1-288"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      }
+    }
+  },
+  "commit_timestamp": 1792404324,
+  "requirement_id": ""
+}
