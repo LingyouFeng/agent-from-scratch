@@ -1,5 +1,6 @@
 import time
 from pathlib import Path
+from typing import Iterator
 
 from src.agent.hooks.manager import HookManager
 from src.agent.runtime.tool_executor import ToolExecutor
@@ -8,7 +9,7 @@ from src.agent.tools.registry import ToolRegistry
 from src.ai.api.all import get_stream_by_api
 from src.ai.model import Model
 from src.ai.model import StreamOptions
-from src.ai.type import Context, TextContent, ThinkingContent, ToolResultMessage, AssistantMessage, ToolCall
+from src.ai.type import Context, TextContent, ThinkingContent, ToolResultMessage, AssistantMessage, ToolCall, Message
 from src.util.time_util import get_timestamp_ms
 
 
@@ -21,7 +22,7 @@ class AgentLoop:
             HookManager(),
         )
 
-    def run_loop(self, model: Model, context: Context, stream_options: StreamOptions):
+    def run_loop(self, model: Model, context: Context, stream_options: StreamOptions) -> Iterator[Message]:
         for _ in range(10):  # 最多循环10次，防止无限循环
             # print("="*100)
             # print(context)
@@ -30,7 +31,7 @@ class AgentLoop:
             if stream is None:
                 raise ValueError("该模型找不到对应的api协议")
 
-            print("\033[36mAssistant >> \033[0m", end="")
+            # print("\033[36mAssistant >> \033[0m", end="")
 
             has_tool_call = False
             text_content = ""
@@ -42,11 +43,11 @@ class AgentLoop:
                 for content in message.content:
                     if content.type == "text":
                         text_content += content.text
-                        print(f"\033[36m{content.text}\033[0m", end="", flush=True)
+                        # print(f"\033[36m{content.text}\033[0m", end="", flush=True)
 
                     elif content.type == "thinking":
                         thinking_content += content.thinking
-                        print(f"\033[34m{content.thinking}\033[0m", end="", flush=True)
+                        # print(f"\033[34m{content.thinking}\033[0m", end="", flush=True)
 
                     elif content.type == "toolCall":
                         print()
@@ -54,7 +55,7 @@ class AgentLoop:
                         tool_calls.append(content)
 
                         tool_result = self._tool_executor.execute(content.id, content.name, content.arguments)
-                        print(f"\033[32mTool >> [{content.name}]:{tool_result} \033[0m")
+                        # print(f"\033[32mTool >> [{content.name}]:{tool_result} \033[0m")
 
                         tool_results.append(ToolResultMessage(
                             role="toolResult",
@@ -63,6 +64,8 @@ class AgentLoop:
                             content=[TextContent(type="text", text=tool_result)],
                             timestamp=int(time.time() * 1000),
                         ))
+                yield message
+
             context.messages.append(
                 AssistantMessage(
                     role="assistant",

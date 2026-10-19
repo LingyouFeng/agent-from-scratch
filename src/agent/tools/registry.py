@@ -7,6 +7,7 @@ from .base import BaseTool
 from .builtin.bash import BashTool
 from .builtin.edit import EditFileTool
 from .builtin.glob import GlobTool
+from .builtin.ls import LsTool
 from .builtin.read import ReadFileTool
 from .builtin.write import WriteFileTool
 
@@ -19,6 +20,7 @@ class ToolRegistry:
             EditFileTool(),
             GlobTool(),
             BashTool(),
+            LsTool(),
         ]
         self._tools: dict[str, BaseTool] = {}
         self.register_all(self._builtin_tools)

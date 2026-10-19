@@ -1,6 +1,10 @@
+from dataclasses import dataclass
+from enum import Enum
+
 from src.ai.type import Message
 
 type AgentMessage = Message
+
 
 class AgentEventType(str, Enum):
     # 第1层：Agent 生命周期（整个运行）
@@ -10,7 +14,7 @@ class AgentEventType(str, Enum):
     # 第2层：Turn 生命周期（一轮模型调用 + 工具执行）
     TURN_START = "turn_start"
     TURN_END = "turn_end"
-    
+
     # 第3层：Message 生命周期（一条消息）
     MESSAGE_START = "message_start"
     MESSAGE_UPDATE = "message_update"
@@ -21,8 +25,11 @@ class AgentEventType(str, Enum):
     TOOL_EXECUTION_UPDATE = "tool_execution_update"
     TOOL_EXECUTION_END = "tool_execution_end"
 
+    ERROR = "error"
+
 
 @dataclass(frozen=True)
 class AgentEvent:
     type: AgentEventType
-    message: AgentMessage
+    message: AgentMessage | None = None
+    text: str | None = None

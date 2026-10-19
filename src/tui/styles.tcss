@@ -1,0 +1,46 @@
+/* styles.tcss */
+#log {
+    height: 1fr;
+    padding: 1 2;
+    scrollbar-gutter: stable;
+}
+
+#prompt {
+    margin: 1 2;
+}
+
+.user-msg {
+    background: $primary-darken-2;
+    color: $text;
+    padding: 0 1;
+    margin-bottom: 1;
+}
+
+.agent-msg {
+    margin-bottom: 1;
+}
+
+.thinking {
+    color: $text-muted;
+    text-style: italic;
+    padding-left: 1;
+    margin-bottom: 1;
+}
+
+.tool-call {
+    color: $warning;
+    padding-left: 1;
+    margin-bottom: 1;
+}
+
+.tool-result {
+    color: $success;
+    padding-left: 1;
+    margin-bottom: 1;
+}
+
+.error {
+    color: $error;
+    padding-left: 1;
+    margin-bottom: 1;
+}
