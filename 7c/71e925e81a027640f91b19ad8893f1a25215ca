@@ -1,0 +1,110 @@
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.0.8",
+  "base_commit_sha": "7c71e925e81a027640f91b19ad8893f1a25215ca",
+  "prompts": {},
+  "commit_stats": {
+    "git_diff_added_lines": 74,
+    "git_diff_deleted_lines": 28,
+    "ai_additions": 0,
+    "ai_accepted": 0,
+    "BYMC": 73,
+    "mixed_additions": 0,
+    "BYAC": 0,
+    "BYRC": 0,
+    "per_file": {
+      "README.md": {
+        "BYMC": [
+          "2",
+          "7-8",
+          "12-17",
+          "19-25",
+          "27-38"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      },
+      "pyproject.toml": {
+        "BYMC": [
+          "9"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      },
+      "src/agent/runtime/agent_loop.py": {
+        "BYMC": [
+          "4-7",
+          "11-12",
+          "37",
+          "48-49",
+          "69-72"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      },
+      "src/agent/runtime/tool_executor.py": {
+        "BYMC": [
+          "3-5"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      },
+      "src/agent/tools/builtin/bash.py": {
+        "BYMC": [
+          "10"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      },
+      "src/agent/tools/builtin/edit.py": {
+        "BYMC": [
+          "9"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      },
+      "src/agent/tools/builtin/glob.py": {
+        "BYMC": [
+          "9"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      },
+      "src/agent/tools/builtin/read.py": {
+        "BYMC": [
+          "8"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      },
+      "src/agent/tools/builtin/write.py": {
+        "BYMC": [
+          "8"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      },
+      "src/ai/api/openai_completion.py": {
+        "BYMC": [
+          "72",
+          "85-94",
+          "209",
+          "211-213",
+          "226-231"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      },
+      "src/main.py": {
+        "BYMC": [
+          "6-7"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      }
+    }
+  },
+  "commit_timestamp": 1792397802,
+  "requirement_id": ""
+}
