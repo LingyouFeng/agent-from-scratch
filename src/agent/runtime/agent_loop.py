@@ -1,15 +1,15 @@
 import time
 from pathlib import Path
 
-from agent.hooks.manager import HookManager
-from agent.runtime.tool_executor import ToolExecutor
-from agent.tools.permission import PermissionPolicy, WorkspaceScope
-from agent.tools.registry import ToolRegistry
+from src.agent.hooks.manager import HookManager
+from src.agent.runtime.tool_executor import ToolExecutor
+from src.agent.tools.permission import PermissionPolicy, WorkspaceScope
+from src.agent.tools.registry import ToolRegistry
 from src.ai.api.all import get_stream_by_api
 from src.ai.model import Model
 from src.ai.model import StreamOptions
-from src.ai.type import Context, TextContent, ToolResultMessage, AssistantMessage, ToolCall
-from util.time_util import get_timestamp_ms
+from src.ai.type import Context, TextContent, ThinkingContent, ToolResultMessage, AssistantMessage, ToolCall
+from src.util.time_util import get_timestamp_ms
 
 
 class AgentLoop:
@@ -34,6 +34,7 @@ class AgentLoop:
 
             has_tool_call = False
             text_content = ""
+            thinking_content = ""
             tool_calls: list[ToolCall] = []
             tool_results: list[ToolResultMessage] = []
 
@@ -44,7 +45,8 @@ class AgentLoop:
                         print(f"\033[36m{content.text}\033[0m", end="", flush=True)
 
                     elif content.type == "thinking":
-                        print("thinking...")
+                        thinking_content += content.thinking
+                        print(f"\033[34m{content.thinking}\033[0m", end="", flush=True)
 
                     elif content.type == "toolCall":
                         print()
@@ -64,7 +66,10 @@ class AgentLoop:
             context.messages.append(
                 AssistantMessage(
                     role="assistant",
-                    content=[TextContent(type="text", text=text_content)],
+                    content=[
+                        *([ThinkingContent(type="thinking", thinking=thinking_content)] if thinking_content else []),
+                        TextContent(type="text", text=text_content)
+                    ],
                     timestamp=get_timestamp_ms())
             )
             if len(tool_calls) > 0:

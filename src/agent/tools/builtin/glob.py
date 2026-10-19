@@ -6,7 +6,7 @@ from typing import ClassVar
 
 from pydantic import BaseModel, Field
 
-from agent.tools.base import BaseTool
+from src.agent.tools.base import BaseTool
 
 
 class GlobArgs(BaseModel):

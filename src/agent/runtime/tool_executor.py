@@ -1,8 +1,8 @@
 from pydantic import ValidationError
 
-from agent.hooks.manager import HookManager
-from agent.tools.permission import PermissionPolicy
-from agent.tools.registry import ToolRegistry
+from src.agent.hooks.manager import HookManager
+from src.agent.tools.permission import PermissionPolicy
+from src.agent.tools.registry import ToolRegistry
 
 
 class ToolExecutor:

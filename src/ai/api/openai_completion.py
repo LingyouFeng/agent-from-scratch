@@ -69,7 +69,7 @@ def stream(model: Model, context: Context, options: StreamOptions | None = None)
             stream=stream_enabled,
             stream_options={"include_usage": True},
             tools=api_tools,
-            reasoning_effort="none",
+            reasoning_effort=options.thinking_level,
         )
 
         if stream_enabled:
@@ -82,7 +82,16 @@ def stream(model: Model, context: Context, options: StreamOptions | None = None)
                 choice = chunk.choices[0]
                 delta = choice.delta
 
-                # 普通文本
+                # 思考文本
+                reasoning = getattr(delta, "reasoning", None)
+                if reasoning:
+                    yield AssistantMessage(
+                        role="assistant",
+                        content=[ThinkingContent(type="thinking", thinking=reasoning)],
+                        timestamp=get_timestamp_ms(),
+                    )
+
+                # 正常响应文本
                 if delta.content:
                     yield AssistantMessage(
                         role="assistant",
@@ -197,9 +206,11 @@ def convert_message(msg: Message) -> ChatCompletionMessageParam | None:
                     )
             return {"role": "user", "content": content_parts}
     elif msg.role == "assistant":
-        content_parts, tool_calls = [], []
+        reasoning_text, content_parts, tool_calls = "", [], []
         for item in msg.content:
-            if item.type == "text":
+            if item.type == "thinking":
+                reasoning_text += item.thinking
+            elif item.type == "text":
                 content_parts.append({"type": "text", "text": item.text})
             elif item.type == "toolCall":
                 tool_calls.append(
@@ -212,10 +223,12 @@ def convert_message(msg: Message) -> ChatCompletionMessageParam | None:
                         },
                     }
                 )
-        if tool_calls:
-            return {"role": "assistant", "content": content_parts, "tool_calls": tool_calls}
-        else:
-            return {"role": "assistant", "content": content_parts}
+        return {
+            "role": "assistant",
+            "reasoning_content": reasoning_text,
+            "content": content_parts,
+            **({"tool_calls": tool_calls} if tool_calls else {})
+        }
     elif msg.role == "toolResult":
         content_parts = []
         for item in msg.content:

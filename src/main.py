@@ -3,8 +3,8 @@ import sys
 import time
 from pathlib import Path
 
-from agent.runtime.agent_loop import AgentLoop
-from agent.tools.registry import ToolRegistry
+from src.agent.runtime.agent_loop import AgentLoop
+from src.agent.tools.registry import ToolRegistry
 from src.ai.model import StreamOptions
 from src.ai.provider.all import get_builtin_models, get_model_by_id
 from src.ai.type import Context, TextContent, UserMessage

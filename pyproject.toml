@@ -6,4 +6,5 @@ dependencies = [
     "dotenv>=0.9.9",
     "openai>=3.35.1",
     "pydantic>=2.14.1",
+    "textual>=8.2.8",
 ]
