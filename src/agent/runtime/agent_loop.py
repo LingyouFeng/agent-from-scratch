@@ -1,28 +1,43 @@
 import time
-from pathlib import Path
-from typing import Iterator
+from typing import AsyncIterator
+from typing import Awaitable, Callable
 
-from src.agent.hooks.manager import HookManager
 from src.agent.runtime.tool_executor import ToolExecutor
-from src.agent.tools.permission import PermissionPolicy, WorkspaceScope
-from src.agent.tools.registry import ToolRegistry
+from src.agent.types import (
+    AgentEndEvent,
+    AgentEvent,
+    AgentMessageEndEvent,
+    AgentMessageStartEvent,
+    AgentMessageUpdateEvent,
+    AgentStartEvent,
+    AgentToolExecutionEndEvent,
+    AgentToolExecutionStartEvent,
+    AgentToolExecutionUpdateEvent,
+    AgentTurnEndEvent,
+    AgentTurnStartEvent,
+)
 from src.ai.api.all import get_stream_by_api
 from src.ai.model import Model
 from src.ai.model import StreamOptions
-from src.ai.type import Context, TextContent, ThinkingContent, ToolResultMessage, AssistantMessage, ToolCall, Message
+from src.ai.type import (
+    AssistantMessage,
+    Context,
+    TextContent,
+    ThinkingContent,
+    ToolCall,
+    ToolResultMessage,
+)
 from src.util.time_util import get_timestamp_ms
 
 
 class AgentLoop:
 
-    def __init__(self, work_dir: Path, tool_registry: ToolRegistry):
-        self._tool_executor = ToolExecutor(
-            tool_registry,
-            PermissionPolicy(WorkspaceScope(work_dir)),
-            HookManager(),
-        )
+    def __init__(self, tool_executor: ToolExecutor, emit: Callable[[AgentEvent], Awaitable[None]]):
+        self._tool_executor = tool_executor
+        self._emit = emit
 
-    def run_loop(self, model: Model, context: Context, stream_options: StreamOptions) -> Iterator[Message]:
+    async def run_loop(self, model: Model, context: Context, stream_options: StreamOptions) -> None:
+        await self._emit(AgentStartEvent())
         for _ in range(10):  # 最多循环10次，防止无限循环
             # print("="*100)
             # print(context)
@@ -31,31 +46,39 @@ class AgentLoop:
             if stream is None:
                 raise ValueError("该模型找不到对应的api协议")
 
-            # print("\033[36mAssistant >> \033[0m", end="")
-
             has_tool_call = False
             text_content = ""
             thinking_content = ""
             tool_calls: list[ToolCall] = []
             tool_results: list[ToolResultMessage] = []
 
-            for message in stream(model, context, stream_options):
+            await self._emit(AgentTurnStartEvent())
+            await self._emit(AgentMessageStartEvent())
+            async for message in stream(model, context, stream_options):
                 for content in message.content:
                     if content.type == "text":
                         text_content += content.text
-                        # print(f"\033[36m{content.text}\033[0m", end="", flush=True)
 
                     elif content.type == "thinking":
                         thinking_content += content.thinking
-                        # print(f"\033[34m{content.thinking}\033[0m", end="", flush=True)
 
                     elif content.type == "toolCall":
-                        print()
                         has_tool_call = True
                         tool_calls.append(content)
 
-                        tool_result = self._tool_executor.execute(content.id, content.name, content.arguments)
-                        # print(f"\033[32mTool >> [{content.name}]:{tool_result} \033[0m")
+                        await self._emit(AgentToolExecutionStartEvent(
+                            tc_id=content.id,
+                            tool_name=content.name,
+                            arguments=content.arguments,
+                        ))
+                        is_success, tool_result = self._tool_executor.execute(content.id, content.name, content.arguments)
+                        await self._emit(AgentToolExecutionEndEvent(
+                            tc_id=content.id,
+                            tool_name=content.name,
+                            arguments=content.arguments,
+                            tool_result=tool_result,
+                            is_success=is_success,
+                        ))
 
                         tool_results.append(ToolResultMessage(
                             role="toolResult",
@@ -64,7 +87,10 @@ class AgentLoop:
                             content=[TextContent(type="text", text=tool_result)],
                             timestamp=int(time.time() * 1000),
                         ))
-                yield message
+                await self._emit(AgentMessageUpdateEvent(message))
+            
+            await self._emit(AgentMessageEndEvent())
+            await self._emit(AgentTurnEndEvent())
 
             context.messages.append(
                 AssistantMessage(
@@ -84,6 +110,7 @@ class AgentLoop:
                     ),
                     *tool_results
                 ])
-            print()
             if not has_tool_call:
                 break
+
+        await self._emit(AgentEndEvent())

@@ -10,18 +10,19 @@ UI 层完全不关心 Agent 内部逻辑，只认队列里的事件；
 """
 
 from __future__ import annotations
-
 import asyncio
 from pathlib import Path
 
 from rich.markup import escape
+from rich.text import Text
 from textual import work
 from textual.app import App, ComposeResult
 from textual.containers import VerticalScroll
+from textual.widgets import Collapsible
 from textual.widgets import Footer, Header, Input, Markdown, Static
 
+from src.agent.types import AgentEvent, AgentEventType
 from src.harness.agent import Agent
-from src.harness.type import AgentEvent, AgentEventType
 
 
 class AgentTUI(App):
@@ -36,6 +37,9 @@ class AgentTUI(App):
         super().__init__()
         self.events: asyncio.Queue[AgentEvent] = asyncio.Queue()
         self.agent = Agent(self.events)
+
+        # 轮次计数
+        self._turn = 0
 
         # 流式正文状态
         self._stream_md: Markdown | None = None
@@ -52,7 +56,7 @@ class AgentTUI(App):
         yield Header(show_clock=True)
         yield VerticalScroll(id="log")
         yield Input(
-            placeholder="输入消息，回车发送…（试试：天气 / 代码 / 随便聊聊）",
+            placeholder="输入消息，回车发送…",
             id="prompt",
         )
         yield Footer()
@@ -84,7 +88,13 @@ class AgentTUI(App):
 
         match ev.type:
             case AgentEventType.AGENT_START:
-                pass
+                await self._on_agent_start()
+
+            case AgentEventType.TURN_START:
+                await self._on_turn_start()
+
+            case AgentEventType.TURN_END:
+                await self._on_turn_end()
 
             case AgentEventType.MESSAGE_UPDATE:
                 match ev.message.role:
@@ -100,18 +110,15 @@ class AgentTUI(App):
                                         Static(f"🔧 {escape(content.name)} {escape(str(content.arguments))}",
                                                classes="tool-call")
                                     )
-                    case "toolResult":
-                        for content in ev.message.content:
-                            if content.type == "text":
-                                await log.mount(
-                                    Static(f"✔ {escape(ev.message.name)} → {escape(content.text)}",
-                                           classes="tool-result")
-                                )
-            case AgentEventType.ERROR:
-                await log.mount(Static(f"✖ {escape(ev.text)}", classes="error"))
+
+            case AgentEventType.TOOL_EXECUTION_START:
+                await self._on_tool_execution_start(ev)
+
+            case AgentEventType.TOOL_EXECUTION_END:
+                await self._on_tool_execution_end(ev) 
 
             case AgentEventType.AGENT_END:
-                await self._finish_turn()
+                await self._on_agent_end()
 
         log.scroll_end(animate=False)
 
@@ -154,13 +161,83 @@ class AgentTUI(App):
         self._thinking_buf.clear()
         self._thinking_dirty = False
 
-    async def _finish_turn(self) -> None:
+    async def _on_agent_start(self) -> None:
+        self._turn = 0
+        self.sub_title = "working…"
+
+    async def _on_agent_end(self) -> None:
         self._flush_stream()  # 把最后一批 token 刷出去
         self._reset_stream()
         inp = self.query_one(Input)
         inp.disabled = False
         inp.focus()
         self.sub_title = "idle"
+
+    # ---------------------------- 轮次 ---------------------------- #
+    async def _on_turn_start(self) -> None:
+        # 把上一轮残留的 token 刷出去（正常事件顺序下已 flush 过，这里是兜底）
+        self._flush_stream()
+        # 新一轮使用新的流式 widget
+        self._reset_stream()
+
+        self._turn += 1
+        self.sub_title = f"working… (turn {self._turn})"
+
+        log = self.query_one("#log", VerticalScroll)
+        await log.mount(
+            Static(
+                f"[dim]── 第 {self._turn} 轮 ──[/dim]",
+                classes="turn-divider",
+            )
+        )
+        log.scroll_end(animate=False)
+
+    async def _on_turn_end(self) -> None:
+        # 刷出本轮最后一批 token
+        self._flush_stream()
+
+        log = self.query_one("#log", VerticalScroll)
+        await log.mount(
+            Static(
+                f"[dim]── 第 {self._turn} 轮结束 ──[/dim]",
+                classes="turn-divider",
+            )
+        )
+        log.scroll_end(animate=False)
+
+    # ---------------------------- 工具执行 ---------------------------- #
+    async def _on_tool_execution_start(self, ev: AgentToolExecutionStartEvent) -> None:
+        log = self.query_one("#log", VerticalScroll)
+        text = Text()
+        text.append("🔧 ", style="yellow")
+        text.append(ev.tool_name, style="bold cyan")
+        preview = ev.arguments
+        if preview:
+            text.append(f"  {preview}", style="dim")
+        await log.mount(Static(text, classes="tool-exec tool-exec-running"))
+        log.scroll_end(animate=False)
+
+    async def _on_tool_execution_end(self, ev: AgentToolExecutionEndEvent) -> None:
+        log = self.query_one("#log", VerticalScroll)
+        ok = ev.is_success
+        icon = "✔" if ok else "✘"
+        color = "green" if ok else "red"
+        cls = "tool-exec-ok" if ok else "tool-exec-fail"
+
+        title = f"[bold {color}]{icon}[/] [bold]{escape(ev.tool_name)}[/]"
+
+        body_text = escape(ev.tool_result) if ev.tool_result else "[dim]（无输出）[/dim]"
+        body = Static(body_text, classes="tool-result-body")
+
+        await log.mount(
+            Collapsible(
+                body,
+                title=title,
+                collapsed=False,   # 默认展开：完整展示全部结果
+                classes=f"tool-exec {cls}",
+            )
+        )
+        log.scroll_end(animate=False)
 
     # ---------------------------- 交互 ---------------------------- #
     async def on_input_submitted(self, event: Input.Submitted) -> None:
@@ -170,7 +247,6 @@ class AgentTUI(App):
 
         event.input.value = ""
         event.input.disabled = True
-        self.sub_title = "working…"
         self._reset_stream()
 
         log = self.query_one("#log", VerticalScroll)

@@ -3,12 +3,12 @@
 """
 
 import json
-from typing import Iterator
+from typing import AsyncIterator
 
 from openai import (
     APIConnectionError,
     APITimeoutError,
-    OpenAI,
+    AsyncOpenAI,
     RateLimitError,
 )
 from openai.types.chat import (
@@ -29,12 +29,12 @@ from src.ai.type import (
 from src.util.time_util import get_timestamp_ms
 
 
-def stream(model: Model, context: Context, options: StreamOptions | None = None) -> AssistantMessage | Iterator[AssistantMessage]:
+async def stream(model: Model, context: Context, options: StreamOptions | None = None) -> AsyncIterator[AssistantMessage]:
     provider = get_provider_by_id(model.provider)
     if provider is None:
         raise ValueError(f"No built-in provider {provider} with model {model.id}")
 
-    client = OpenAI(api_key=provider.api_key, base_url=provider.base_url)
+    client = AsyncOpenAI(api_key=provider.api_key, base_url=provider.base_url)
 
     # 组装请求messages：系统提示 + 历史消息
     api_messages: list[ChatCompletionMessageParam] = [
@@ -63,7 +63,7 @@ def stream(model: Model, context: Context, options: StreamOptions | None = None)
     # print("=" * 100)
     try:
         stream_enabled = options.stream if options else False
-        response = client.chat.completions.create(
+        response = await client.chat.completions.create(
             model=model.name,
             messages=api_messages,
             stream=stream_enabled,
@@ -76,7 +76,7 @@ def stream(model: Model, context: Context, options: StreamOptions | None = None)
             tool_call_buffers: list[ToolCall] = []
             tool_args_buffers: dict[int, str] = {}
 
-            for chunk in response:
+            async for chunk in response:
                 if not chunk.choices:
                     continue
                 choice = chunk.choices[0]
@@ -174,7 +174,7 @@ def stream(model: Model, context: Context, options: StreamOptions | None = None)
                     )
                 )
 
-            return AssistantMessage(
+            yield AssistantMessage(
                 role="assistant",
                 content=content_list,
                 timestamp=get_timestamp_ms(),

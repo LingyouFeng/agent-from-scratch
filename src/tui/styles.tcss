@@ -44,3 +44,40 @@
     padding-left: 1;
     margin-bottom: 1;
 }
+
+.turn-divider {
+    color: $text-muted;
+    padding: 0 1;
+    margin: 1 0 0 0;
+}
+
+/* 工具执行卡片：左侧色条 + 微背景，像引用块 */
+.tool-exec {
+    margin: 0 0 0 1;
+    padding: 0 1;
+    border-left: thick $primary;
+    background: $surface;
+}
+
+.tool-exec-running {
+    border-left: thick $warning;   /* 执行中：黄色 */
+}
+
+/* 工具执行结果卡片：成功绿框 / 失败红框，点标题折叠 */
+Collapsible.tool-exec-ok {
+    margin: 0 0 1 1;
+    border: round $success;
+    background: $surface;
+}
+
+Collapsible.tool-exec-fail {
+    margin: 0 0 1 1;
+    border: round $error;
+    background: $surface;
+}
+
+.tool-result-body {
+    padding: 1;
+    background: $surface;
+    color: $text;
+}

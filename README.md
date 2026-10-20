@@ -24,8 +24,14 @@
 - PostTool
 - Stop
 
+### 3. harness层
+- 实现AgentEvent、Agent管理agentLoop
+
+### 4. tui层
+- 实现基于Textual的终端界面
+
+
 ## TODO
-- tui（Textual）
 - 兼容不同模型的思考模式
 - status bar
 - session and store（local）
