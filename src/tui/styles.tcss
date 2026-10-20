@@ -81,3 +81,11 @@ Collapsible.tool-exec-fail {
     background: $surface;
     color: $text;
 }
+
+#statusbar {
+    height: auto;
+    max-height: 10;
+    padding: 0 1;
+    background: $boost;
+    border-top: solid $primary;
+}

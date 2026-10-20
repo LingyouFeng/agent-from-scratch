@@ -26,6 +26,9 @@ class AgentEventType(str, Enum):
     TOOL_EXECUTION_UPDATE = "tool_execution_update"
     TOOL_EXECUTION_END = "tool_execution_end"
 
+    # 其他
+    STATUS_BAR_UPDATE = "status_bar_update"
+
 
 @dataclass(frozen=True)
 class AgentStartEvent:
@@ -90,6 +93,11 @@ class AgentToolExecutionEndEvent:
     type: Literal[AgentEventType.TOOL_EXECUTION_END] = AgentEventType.TOOL_EXECUTION_END
     
 
+@dataclass(frozen=True)
+class AgentStatusBarUpdateEvent:
+    status_bar: str
+    type: Literal[AgentEventType.STATUS_BAR_UPDATE] = AgentEventType.STATUS_BAR_UPDATE
+
 
 type AgentEvent = (
     AgentStartEvent
@@ -102,4 +110,5 @@ type AgentEvent = (
     | AgentToolExecutionStartEvent
     | AgentToolExecutionUpdateEvent
     | AgentToolExecutionEndEvent
+    | AgentStatusBarUpdateEvent
 )

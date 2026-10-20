@@ -10,6 +10,7 @@ from .builtin.glob import GlobTool
 from .builtin.ls import LsTool
 from .builtin.read import ReadFileTool
 from .builtin.write import WriteFileTool
+from .builtin.todo import TodoTool
 
 
 class ToolRegistry:
@@ -21,6 +22,7 @@ class ToolRegistry:
             GlobTool(),
             BashTool(),
             LsTool(),
+            TodoTool(),
         ]
         self._tools: dict[str, BaseTool] = {}
         self.register_all(self._builtin_tools)

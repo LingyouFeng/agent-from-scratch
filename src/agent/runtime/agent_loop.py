@@ -3,6 +3,7 @@ from typing import AsyncIterator
 from typing import Awaitable, Callable
 
 from src.agent.runtime.tool_executor import ToolExecutor
+from src.agent.status_bar import StatusBar
 from src.agent.types import (
     AgentEndEvent,
     AgentEvent,
@@ -15,11 +16,13 @@ from src.agent.types import (
     AgentToolExecutionUpdateEvent,
     AgentTurnEndEvent,
     AgentTurnStartEvent,
+    AgentStatusBarUpdateEvent,
 )
 from src.ai.api.all import get_stream_by_api
 from src.ai.model import Model
 from src.ai.model import StreamOptions
 from src.ai.type import (
+    UserMessage,
     AssistantMessage,
     Context,
     TextContent,
@@ -35,8 +38,13 @@ class AgentLoop:
     def __init__(self, tool_executor: ToolExecutor, emit: Callable[[AgentEvent], Awaitable[None]]):
         self._tool_executor = tool_executor
         self._emit = emit
+        self._status_bar = StatusBar()
 
     async def run_loop(self, model: Model, context: Context, stream_options: StreamOptions) -> None:
+        # 每次循环前先注入状态栏
+        await self._emit(AgentStatusBarUpdateEvent(self._status_bar.build()))
+        self._inject_status_bar(context)
+
         await self._emit(AgentStartEvent())
         for _ in range(10):  # 最多循环10次，防止无限循环
             # print("="*100)
@@ -114,3 +122,18 @@ class AgentLoop:
                 break
 
         await self._emit(AgentEndEvent())
+
+
+    def _inject_status_bar(self, context: Context) -> None:
+        """把当前状态栏作为一条 user message 注入 context。
+        """
+        if self._status_bar is None:
+            return
+
+        status_text = self._status_bar.build()
+        msg = UserMessage(
+            role="user",
+            content=[TextContent(type="text", text=status_text)],
+            timestamp=get_timestamp_ms(),
+        )
+        context.messages.append(msg)
