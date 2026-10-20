@@ -232,6 +232,12 @@ class PermissionPolicy:
                 tool_permission=ToolPermission.ALLOW,
             ),
             PermissionRule(
+                rule_id="session_state_allow",
+                rule_name="允许会话状态工具",
+                matcher=_session_tool_allow,
+                tool_permission=ToolPermission.ALLOW,
+            ),
+            PermissionRule(
                 rule_id="write_requires_approval",
                 rule_name="写需要审批",
                 matcher=_write_requires_ask,
@@ -249,6 +255,7 @@ class PermissionPolicy:
 PATH_TOOLS = frozenset(WorkspaceScope.PATH_ARGUMENTS)
 READ_PATH_TOOLS = frozenset({"read_file", "glob", "ls"})
 WRITE_PATH_TOOLS = frozenset({"write_file", "edit_file"})
+SESSION_TOOLS = frozenset({"todo"})
 HARD_DENY_PATTERNS = (
     re.compile(r"\bsudo\b", re.IGNORECASE),
     re.compile(r"\brm\s+-(?=[^\s]*r)(?=[^\s]*f)[^\s]*", re.IGNORECASE),
@@ -282,6 +289,11 @@ def _path_outside_workspace(request: ToolRequest, ws: WorkspaceScope) -> tuple[b
 def _only_read_allow(request: ToolRequest, ws: WorkspaceScope) -> tuple[bool, str]:
     return (request.name in READ_PATH_TOOLS and ws.contains(request),
             "read-only file operation stays inside the workspace")
+
+
+def _session_tool_allow(request: ToolRequest, ws: WorkspaceScope) -> tuple[bool, str]:
+    return (request.name in SESSION_TOOLS,
+            f"{request.name} only mutates in-session task state; no filesystem or shell side effects",)
 
 
 def _write_requires_ask(request: ToolRequest, ws: WorkspaceScope) -> tuple[bool, str]:

@@ -25,10 +25,8 @@ class StatusBar:
 
         current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         status_bar = (
-            "<status>"
             f"system time: {current_time}\n"
             f"todos: {self.format_todos()}"
-            "</status>"
         )
         return status_bar
 

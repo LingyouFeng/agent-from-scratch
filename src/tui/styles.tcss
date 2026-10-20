@@ -1,14 +1,51 @@
-/* styles.tcss */
+/* ====== 日志区 ====== */
 #log {
     height: 1fr;
-    padding: 1 2;
+    padding: 1 2; /* 核心基准：左右留白 2 */
     scrollbar-gutter: stable;
 }
 
-#prompt {
-    margin: 1 2;
+/* ====== 状态栏 ====== */
+#statusbar {
+    height: auto;
+    max-height: 10;
+    padding: 1 2; /* 与日志区的 2 对齐 */
+    background: $boost;
+    border-top: solid $surface-lighten-2; /* 改成暗色，不再用刺眼的主题蓝 */
 }
 
+/* ====== 输入区容器 ====== */
+#input-row {
+    height: 4; /* 增加一点高度，让上下有留白 */
+    width: 100%;
+    padding: 0 2; /* 左侧留白 2，与日志对齐 */
+    margin-top: 1;    /* 新增：与上方的状态栏拉开 1 格距离 */
+    align: center middle;
+}
+
+/* ====== 文本框 ====== */
+#prompt {
+    width: 1fr;
+    height: 3;
+    margin: 0; /* 去掉 margin，对齐完全交给父容器处理 */
+    border: tall $surface-lighten-2; /* 默认状态使用暗色边框 */
+}
+
+#prompt:focus {
+    border: tall $primary; /* 只有聚焦时才亮起 */
+}
+
+/* ====== 发送按钮 ====== */
+#send {
+    width: 8;
+    min-width: 8;
+    height: 3;
+    margin: 0 0 0 1; /* 仅留左侧 1 格间距，与输入框隔开 */
+    padding: 0;
+    content-align: center middle;
+}
+
+/* ====== 消息与工具样式（保持不变） ====== */
 .user-msg {
     background: $primary-darken-2;
     color: $text;
@@ -51,7 +88,6 @@
     margin: 1 0 0 0;
 }
 
-/* 工具执行卡片：左侧色条 + 微背景，像引用块 */
 .tool-exec {
     margin: 0 0 0 1;
     padding: 0 1;
@@ -60,10 +96,9 @@
 }
 
 .tool-exec-running {
-    border-left: thick $warning;   /* 执行中：黄色 */
+    border-left: thick $warning;
 }
 
-/* 工具执行结果卡片：成功绿框 / 失败红框，点标题折叠 */
 Collapsible.tool-exec-ok {
     margin: 0 0 1 1;
     border: round $success;
@@ -80,12 +115,4 @@ Collapsible.tool-exec-fail {
     padding: 1;
     background: $surface;
     color: $text;
-}
-
-#statusbar {
-    height: auto;
-    max-height: 10;
-    padding: 0 1;
-    background: $boost;
-    border-top: solid $primary;
 }

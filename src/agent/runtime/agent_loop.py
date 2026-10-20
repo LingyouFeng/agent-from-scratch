@@ -1,7 +1,8 @@
+import asyncio
 import time
-from typing import AsyncIterator
 from typing import Awaitable, Callable
 
+from src.agent.constant import Constants
 from src.agent.runtime.tool_executor import ToolExecutor
 from src.agent.status_bar import StatusBar
 from src.agent.types import (
@@ -13,7 +14,6 @@ from src.agent.types import (
     AgentStartEvent,
     AgentToolExecutionEndEvent,
     AgentToolExecutionStartEvent,
-    AgentToolExecutionUpdateEvent,
     AgentTurnEndEvent,
     AgentTurnStartEvent,
     AgentStatusBarUpdateEvent,
@@ -40,19 +40,24 @@ class AgentLoop:
         self._emit = emit
         self._status_bar = StatusBar()
 
-    async def run_loop(self, model: Model, context: Context, stream_options: StreamOptions) -> None:
-        # 每次循环前先注入状态栏
-        await self._emit(AgentStatusBarUpdateEvent(self._status_bar.build()))
-        self._inject_status_bar(context)
-
+    async def run_loop(self, model: Model,
+                       context: Context,
+                       stream_options: StreamOptions,
+                       stop_event: asyncio.Event) -> None:
         await self._emit(AgentStartEvent())
-        for _ in range(10):  # 最多循环10次，防止无限循环
+        for _ in range(Constants.MAX_TURN):
+            if stop_event.is_set():
+                break
             # print("="*100)
             # print(context)
             # print("="*100)
             stream = get_stream_by_api(model.api)
             if stream is None:
                 raise ValueError("该模型找不到对应的api协议")
+
+            # 每次循环前先注入状态栏
+            await self._emit(AgentStatusBarUpdateEvent(self._status_bar.build()))
+            self._inject_status_bar(context)
 
             has_tool_call = False
             text_content = ""
@@ -63,7 +68,11 @@ class AgentLoop:
             await self._emit(AgentTurnStartEvent())
             await self._emit(AgentMessageStartEvent())
             async for message in stream(model, context, stream_options):
+                if stop_event.is_set():
+                    break
                 for content in message.content:
+                    if stop_event.is_set():
+                        break
                     if content.type == "text":
                         text_content += content.text
 
@@ -77,13 +86,14 @@ class AgentLoop:
                         await self._emit(AgentToolExecutionStartEvent(
                             tc_id=content.id,
                             tool_name=content.name,
-                            arguments=content.arguments,
+                            arguments=str(content.arguments),
                         ))
-                        is_success, tool_result = self._tool_executor.execute(content.id, content.name, content.arguments)
+                        is_success, tool_result = self._tool_executor.execute(content.id, content.name,
+                                                                              content.arguments)
                         await self._emit(AgentToolExecutionEndEvent(
                             tc_id=content.id,
                             tool_name=content.name,
-                            arguments=content.arguments,
+                            arguments=str(content.arguments),
                             tool_result=tool_result,
                             is_success=is_success,
                         ))
@@ -96,7 +106,9 @@ class AgentLoop:
                             timestamp=int(time.time() * 1000),
                         ))
                 await self._emit(AgentMessageUpdateEvent(message))
-            
+                if stop_event.is_set():
+                    break
+
             await self._emit(AgentMessageEndEvent())
             await self._emit(AgentTurnEndEvent())
 
@@ -123,14 +135,13 @@ class AgentLoop:
 
         await self._emit(AgentEndEvent())
 
-
     def _inject_status_bar(self, context: Context) -> None:
         """把当前状态栏作为一条 user message 注入 context。
         """
         if self._status_bar is None:
             return
 
-        status_text = self._status_bar.build()
+        status_text = f"<status>{self._status_bar.build()}</status>"
         msg = UserMessage(
             role="user",
             content=[TextContent(type="text", text=status_text)],

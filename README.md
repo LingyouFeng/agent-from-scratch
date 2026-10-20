@@ -13,6 +13,7 @@
 
 #### 2.1 agent循环
 - 基本agentloop循环（思考模式）
+- status bar
 
 #### 2.2 工具
 - 5类内置工具：read/write/glob/edit/bash
@@ -30,10 +31,8 @@
 ### 4. tui层
 - 实现基于Textual的终端界面
 
-
 ## TODO
 - 兼容不同模型的思考模式
-- status bar
 - session and store（local）
 - audit
 - skill

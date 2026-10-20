@@ -10,6 +10,7 @@ UI 层完全不关心 Agent 内部逻辑，只认队列里的事件；
 """
 
 from __future__ import annotations
+
 import asyncio
 from pathlib import Path
 
@@ -17,11 +18,16 @@ from rich.markup import escape
 from rich.text import Text
 from textual import work
 from textual.app import App, ComposeResult
-from textual.containers import VerticalScroll
-from textual.widgets import Collapsible
+from textual.containers import VerticalScroll, Horizontal
+from textual.widgets import Collapsible, Button
 from textual.widgets import Footer, Header, Input, Markdown, Static
 
-from src.agent.types import AgentEvent, AgentEventType
+from src.agent.types import (
+    AgentEvent,
+    AgentEventType,
+    AgentToolExecutionEndEvent,
+    AgentToolExecutionStartEvent, AgentStatusBarUpdateEvent
+)
 from src.harness.agent import Agent
 
 
@@ -46,7 +52,7 @@ class AgentTUI(App):
         self._stream_buf: list[str] = []
         self._stream_dirty = False
 
-        # 流式 thinking 状态（新增）
+        # 流式 thinking 状态
         self._thinking_static: Static | None = None
         self._thinking_buf: list[str] = []
         self._thinking_dirty = False
@@ -56,15 +62,15 @@ class AgentTUI(App):
         yield Header(show_clock=True)
         yield VerticalScroll(id="log")
         yield Static("", id="statusbar")
-        yield Input(
-            placeholder="输入消息，回车发送…",
-            id="prompt",
-        )
+        with Horizontal(id="input-row"):
+            yield Input(placeholder="输入消息，回车发送…", id="prompt")
+            yield Button("发送", id="send", variant="primary")
         yield Footer()
 
     def on_mount(self) -> None:
         self.title = "Agent TUI"
         self.sub_title = "idle"
+
         self.query_one(Input).focus()
         self.query_one("#statusbar", Static).update(
             Text("system time: --\ntodos: (none)", style="dim")
@@ -109,17 +115,12 @@ class AgentTUI(App):
                                     await self._on_delta(content.text, log)
                                 case "thinking":
                                     await self._on_thinking_delta(content.thinking, log)
-                                case "toolCall":
-                                    await log.mount(
-                                        Static(f"🔧 {escape(content.name)} {escape(str(content.arguments))}",
-                                               classes="tool-call")
-                                    )
 
             case AgentEventType.TOOL_EXECUTION_START:
                 await self._on_tool_execution_start(ev)
 
             case AgentEventType.TOOL_EXECUTION_END:
-                await self._on_tool_execution_end(ev) 
+                await self._on_tool_execution_end(ev)
 
             case AgentEventType.AGENT_END:
                 await self._on_agent_end()
@@ -170,14 +171,18 @@ class AgentTUI(App):
 
     async def _on_agent_start(self) -> None:
         self._turn = 0
+        self._set_running(True)  # 可选兜底
         self.sub_title = "working…"
 
     async def _on_agent_end(self) -> None:
         self._flush_stream()  # 把最后一批 token 刷出去
         self._reset_stream()
+
         inp = self.query_one(Input)
         inp.disabled = False
         inp.focus()
+
+        self._set_running(False)  # ← 新增：空闲后恢复按钮
         self.sub_title = "idle"
 
     # ---------------------------- 轮次 ---------------------------- #
@@ -215,13 +220,22 @@ class AgentTUI(App):
     # ---------------------------- 工具执行 ---------------------------- #
     async def _on_tool_execution_start(self, ev: AgentToolExecutionStartEvent) -> None:
         log = self.query_one("#log", VerticalScroll)
-        text = Text()
-        text.append("🔧 ", style="yellow")
-        text.append(ev.tool_name, style="bold cyan")
-        preview = ev.arguments
-        if preview:
-            text.append(f"  {preview}", style="dim")
-        await log.mount(Static(text, classes="tool-exec tool-exec-running"))
+
+        title = f"[yellow]🔧[/] [bold cyan]{escape(ev.tool_name)}[/]"
+        if ev.arguments:
+            title += f"  [dim]{escape(ev.arguments)}[/dim]"
+
+        body_text = escape(ev.arguments) if ev.arguments else "[dim]（无参数）[/dim]"
+        body = Static(body_text, classes="tool-args-body")
+
+        await log.mount(
+            Collapsible(
+                body,
+                title=title,
+                collapsed=True,
+                classes="tool-exec tool-exec-running",
+            )
+        )
         log.scroll_end(animate=False)
 
     async def _on_tool_execution_end(self, ev: AgentToolExecutionEndEvent) -> None:
@@ -240,7 +254,7 @@ class AgentTUI(App):
             Collapsible(
                 body,
                 title=title,
-                collapsed=False,   # 默认展开：完整展示全部结果
+                collapsed=True,
                 classes=f"tool-exec {cls}",
             )
         )
@@ -278,24 +292,65 @@ class AgentTUI(App):
 
     # ---------------------------- 交互 ---------------------------- #
     async def on_input_submitted(self, event: Input.Submitted) -> None:
-        text = event.value.strip()
+        await self._submit_prompt(event.value)
+
+    async def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id != "send":
+            return
+
+        # 运行中 → 点击执行停止
+        if self.agent.busy:
+            # 先切到「停止中…」并禁用，防止重复点击
+            event.button.label = "停止中…"
+            event.button.disabled = True
+            try:
+                self.agent.stop()  # 注意：类里属性名是 self.agent
+            except Exception as exc:  # noqa: BLE001
+                self.log.error(f"stop agent failed: {exc!r}")
+                # 停止失败时恢复成运行态
+                self._set_running(True)
+            return
+
+        # 空闲 → 走和回车一致的提交逻辑
+        await self._submit_prompt(self.query_one(Input).value)
+
+
+    async def _submit_prompt(self, text: str) -> None:
+        """回车与按钮共用的发送逻辑。"""
+        text = (text or "").strip()
         if not text or self.agent.busy:
             return
 
-        event.input.value = ""
-        event.input.disabled = True
+        inp = self.query_one(Input)
+        inp.value = ""
+        inp.disabled = True
+
         self._reset_stream()
+        self._set_running(True)  # 按钮切到「停止」
 
         log = self.query_one("#log", VerticalScroll)
         await log.mount(Static(f"[b]你[/b]  {escape(text)}", classes="user-msg"))
         log.scroll_end(animate=False)
 
-        self.run_agent(text)  # 后台 worker 驱动 Agent
+        self.run_agent(text)
+
+    def _set_running(self, running: bool) -> None:
+        """根据 agent 状态切换发送按钮的外观/可用性。"""
+        btn = self.query_one(f"#send", Button)
+        btn.disabled = False
+        if running:
+            btn.label = "停止"
+            btn.variant = "error"
+        else:
+            btn.label = "发送"
+            btn.variant = "primary"
+
 
     @work(group="agent")
     async def run_agent(self, prompt: str) -> None:
         await self.agent.run(prompt)
 
+    # ---------------------------- 命令 ---------------------------- #
     async def action_clear_log(self) -> None:
         log = self.query_one("#log", VerticalScroll)
         await log.remove_children()
