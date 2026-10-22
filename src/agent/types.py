@@ -1,8 +1,8 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Literal
 
-from src.ai.type import Message
+from src.ai.types import Message, AssistantMessageEvent
 
 type AgentMessage = Message
 
@@ -32,83 +32,106 @@ class AgentEventType(str, Enum):
 
 @dataclass(frozen=True)
 class AgentStartEvent:
-    type: Literal[AgentEventType.AGENT_START] = AgentEventType.AGENT_START
+    type: Literal[AgentEventType.AGENT_START] = field(
+        default=AgentEventType.AGENT_START, init=False
+    )
 
 
 @dataclass(frozen=True)
 class AgentEndEvent:
-    type: Literal[AgentEventType.AGENT_END] = AgentEventType.AGENT_END
+    type: Literal[AgentEventType.AGENT_END] = field(
+        default=AgentEventType.AGENT_END, init=False
+    )
 
 
 @dataclass(frozen=True)
 class AgentTurnStartEvent:
-    type: Literal[AgentEventType.TURN_START] = AgentEventType.TURN_START
+    type: Literal[AgentEventType.TURN_START] = field(
+        default=AgentEventType.TURN_START, init=False
+    )
 
 
 @dataclass(frozen=True)
 class AgentTurnEndEvent:
-    type: Literal[AgentEventType.TURN_END] = AgentEventType.TURN_END
+    type: Literal[AgentEventType.TURN_END] = field(
+        default=AgentEventType.TURN_END, init=False
+    )
 
 
 @dataclass(frozen=True)
 class AgentMessageStartEvent:
-    type: Literal[AgentEventType.MESSAGE_START] = AgentEventType.MESSAGE_START
+    type: Literal[AgentEventType.MESSAGE_START] = field(
+        default=AgentEventType.MESSAGE_START, init=False
+    )
 
 
 @dataclass(frozen=True)
 class AgentMessageUpdateEvent:
+    type: Literal[AgentEventType.MESSAGE_UPDATE] = field(
+        default=AgentEventType.MESSAGE_UPDATE, init=False
+    )
     message: AgentMessage
-    type: Literal[AgentEventType.MESSAGE_UPDATE] = AgentEventType.MESSAGE_UPDATE
+    assistant_message_event: AssistantMessageEvent
 
 
 @dataclass(frozen=True)
 class AgentMessageEndEvent:
-    type: Literal[AgentEventType.MESSAGE_END] = AgentEventType.MESSAGE_END
+    type: Literal[AgentEventType.MESSAGE_END] = field(
+        default=AgentEventType.MESSAGE_END, init=False
+    )
 
 
 @dataclass(frozen=True)
 class AgentToolExecutionStartEvent:
+    type: Literal[AgentEventType.TOOL_EXECUTION_START] = field(
+        default=AgentEventType.TOOL_EXECUTION_START, init=False
+    )
     tc_id: str
     tool_name: str
     arguments: str
-    type: Literal[AgentEventType.TOOL_EXECUTION_START] = AgentEventType.TOOL_EXECUTION_START
 
 
 @dataclass(frozen=True)
 class AgentToolExecutionUpdateEvent:
+    type: Literal[AgentEventType.TOOL_EXECUTION_UPDATE] = field(
+        default=AgentEventType.TOOL_EXECUTION_UPDATE, init=False
+    )
     tc_id: str
     tool_name: str
     arguments: str
     tool_result: str
-    type: Literal[AgentEventType.TOOL_EXECUTION_UPDATE] = AgentEventType.TOOL_EXECUTION_UPDATE
 
 
 @dataclass(frozen=True)
 class AgentToolExecutionEndEvent:
+    type: Literal[AgentEventType.TOOL_EXECUTION_END] = field(
+        default=AgentEventType.TOOL_EXECUTION_END, init=False
+    )
     tc_id: str
     tool_name: str
     arguments: str
     tool_result: str
     is_success: bool
-    type: Literal[AgentEventType.TOOL_EXECUTION_END] = AgentEventType.TOOL_EXECUTION_END
-    
+
 
 @dataclass(frozen=True)
 class AgentStatusBarUpdateEvent:
+    type: Literal[AgentEventType.STATUS_BAR_UPDATE] = field(
+        default=AgentEventType.STATUS_BAR_UPDATE, init=False
+    )
     status_bar: str
-    type: Literal[AgentEventType.STATUS_BAR_UPDATE] = AgentEventType.STATUS_BAR_UPDATE
 
 
 type AgentEvent = (
-    AgentStartEvent
-    | AgentEndEvent
-    | AgentTurnStartEvent
-    | AgentTurnEndEvent
-    | AgentMessageStartEvent
-    | AgentMessageUpdateEvent
-    | AgentMessageEndEvent
-    | AgentToolExecutionStartEvent
-    | AgentToolExecutionUpdateEvent
-    | AgentToolExecutionEndEvent
-    | AgentStatusBarUpdateEvent
+        AgentStartEvent
+        | AgentEndEvent
+        | AgentTurnStartEvent
+        | AgentTurnEndEvent
+        | AgentMessageStartEvent
+        | AgentMessageUpdateEvent
+        | AgentMessageEndEvent
+        | AgentToolExecutionStartEvent
+        | AgentToolExecutionUpdateEvent
+        | AgentToolExecutionEndEvent
+        | AgentStatusBarUpdateEvent
 )

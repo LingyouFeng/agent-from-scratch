@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""一个用 Textual 写的极简 Agent TUI。
+"""一个用 Textual 写的 Agent TUI。
 
 架构：
     生产端  MockAgent ──put──> asyncio.Queue[AgentEvent]
@@ -12,13 +12,14 @@ UI 层完全不关心 Agent 内部逻辑，只认队列里的事件；
 from __future__ import annotations
 
 import asyncio
+import datetime
 from pathlib import Path
 
 from rich.markup import escape
 from rich.text import Text
 from textual import work
 from textual.app import App, ComposeResult
-from textual.containers import VerticalScroll, Horizontal
+from textual.containers import VerticalScroll, Horizontal, Vertical
 from textual.widgets import Collapsible, Button
 from textual.widgets import Footer, Header, Input, Markdown, Static
 
@@ -59,9 +60,8 @@ class AgentTUI(App):
 
     # ---------------------------- 布局 ---------------------------- #
     def compose(self) -> ComposeResult:
-        yield Header(show_clock=True)
+        yield Header()
         yield VerticalScroll(id="log")
-        yield Static("", id="statusbar")
         with Horizontal(id="input-row"):
             yield Input(placeholder="输入消息，回车发送…", id="prompt")
             yield Button("发送", id="send", variant="primary")
@@ -70,11 +70,8 @@ class AgentTUI(App):
     def on_mount(self) -> None:
         self.title = "Agent TUI"
         self.sub_title = "idle"
-
         self.query_one(Input).focus()
-        self.query_one("#statusbar", Static).update(
-            Text("system time: --\ntodos: (none)", style="dim")
-        )
+
         # 20fps 节流刷新 Markdown / Static，避免每个 token 都重排
         self.set_interval(1 / 20, self._flush_stream)
         # 启动消费者 worker
@@ -101,10 +98,12 @@ class AgentTUI(App):
                 await self._on_agent_start()
 
             case AgentEventType.TURN_START:
-                await self._on_turn_start()
+                pass
+                # await self._on_turn_start()
 
             case AgentEventType.TURN_END:
-                await self._on_turn_end()
+                pass
+                # await self._on_turn_end()
 
             case AgentEventType.MESSAGE_UPDATE:
                 match ev.message.role:
@@ -126,7 +125,8 @@ class AgentTUI(App):
                 await self._on_agent_end()
 
             case AgentEventType.STATUS_BAR_UPDATE:
-                await self._on_status_bar_update(ev)
+                pass
+                # await self._on_status_bar_update(ev)
 
         log.scroll_end(animate=False)
 
@@ -142,7 +142,15 @@ class AgentTUI(App):
     async def _on_thinking_delta(self, text: str, log: VerticalScroll) -> None:
         if self._thinking_static is None:
             self._thinking_static = Static("", classes="thinking")
-            await log.mount(self._thinking_static)
+            # 将 Static 包进 Collapsible 中，默认折叠
+            await log.mount(
+                Collapsible(
+                    self._thinking_static,
+                    title="[dim]💭 思考过程[/dim]",
+                    collapsed=True,
+                    classes="thinking-collapsible"
+                )
+            )
         self._thinking_buf.append(text)
         self._thinking_dirty = True
 
@@ -155,8 +163,7 @@ class AgentTUI(App):
 
         if self._thinking_dirty and self._thinking_static is not None:
             self._thinking_dirty = False
-            # 累积后再 escape 一次即可，避免对每个 delta 重复 escape
-            self._thinking_static.update(f"💭 {escape(''.join(self._thinking_buf))}")
+            self._thinking_static.update(escape(''.join(self._thinking_buf)))
 
     def _reset_stream(self) -> None:
         # 正文
@@ -329,7 +336,21 @@ class AgentTUI(App):
         self._set_running(True)  # 按钮切到「停止」
 
         log = self.query_one("#log", VerticalScroll)
-        await log.mount(Static(f"[b]你[/b]  {escape(text)}", classes="user-msg"))
+
+        # 获取当前时间
+        time_str = datetime.datetime.now().strftime("%H:%M")
+
+        # 构建气泡和底部信息
+        bubble = Static(escape(text), classes="user-msg-bubble")
+        meta = Static(f"You · {time_str}", classes="user-msg-meta")
+
+        # 用 Vertical 把它们上下包起来
+        wrapper = Vertical(bubble, meta, classes="user-msg-wrapper")
+
+        # 用 Horizontal 靠右对齐
+        row = Horizontal(wrapper, classes="user-msg-row")
+
+        await log.mount(row)
         log.scroll_end(animate=False)
 
         self.run_agent(text)

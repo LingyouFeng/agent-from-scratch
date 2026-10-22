@@ -4,7 +4,7 @@ from typing import AsyncIterator
 from src.ai.api.openai_completion import stream as openai_completion_stream
 from src.ai.model import Model
 from src.ai.model import StreamOptions
-from src.ai.type import AssistantMessage, Context
+from src.ai.types import AssistantMessage, Context
 
 type StreamAPI = Callable[[Model, Context, StreamOptions | None], AsyncIterator[AssistantMessage]]
 

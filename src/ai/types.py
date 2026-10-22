@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from enum import Enum
 from typing import Any, Literal
 
 
@@ -67,3 +68,25 @@ class Context:
     systemPrompt: str
     messages: list[Message]
     tools: list[Tool]
+
+
+class AssistantMessageEventType(str, Enum):
+    START = "start"
+    TEXT_START = "text_start"
+    TEXT_DELTA = "text_delta"
+    TEXT_END = "text_end"
+    THINK_START = "think_start"
+    THINK_DELTA = "think_delta"
+    THINK_END = "think_end"
+    TOOLCALL_START = "toolcall_start"
+    TOOLCALL_DELTA = "toolcall_delta"
+    TOOLCALL_END = "toolcall_end"
+    DONE = "done"
+    ERROR = "error"
+
+
+@dataclass(frozen=True)
+class AssistantMessageEvent:
+    type: AssistantMessageEventType
+    content_index: int
+    partial: AssistantMessage

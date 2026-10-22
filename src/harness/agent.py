@@ -9,7 +9,7 @@ from src.agent.tools.registry import ToolRegistry
 from src.agent.types import AgentEvent
 from src.ai.model import StreamOptions
 from src.ai.provider.all import get_model_by_id
-from src.ai.type import Context, Message, TextContent, UserMessage
+from src.ai.types import Context, Message, TextContent, UserMessage
 from src.util.time_util import get_timestamp_ms
 
 WD = Constants.WORKDIR

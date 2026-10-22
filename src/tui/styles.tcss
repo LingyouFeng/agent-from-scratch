@@ -1,8 +1,20 @@
 /* ====== 日志区 ====== */
 #log {
     height: 1fr;
-    padding: 1 2; /* 核心基准：左右留白 2 */
+    padding: 1 1 1 2;
     scrollbar-gutter: stable;
+
+    /* 美化滚动条 */
+    scrollbar-size-vertical: 1;
+    scrollbar-background: $surface;
+    scrollbar-color: $surface-lighten-1;
+    scrollbar-color-hover: $surface-lighten-2;
+    scrollbar-color-active: $primary;
+}
+
+/* 给日志里所有直接子元素右侧加间距 */
+#log > * {
+    margin-right: 3;
 }
 
 /* ====== 状态栏 ====== */
@@ -45,23 +57,54 @@
     content-align: center middle;
 }
 
-/* ====== 消息与工具样式（保持不变） ====== */
-.user-msg {
+/* ====== 用户消息行（用于控制靠右） ====== */
+.user-msg-row {
+    width: 100%;
+    height: auto;
+    align: right middle;
+}
+
+/* ====== 用户消息组合（气泡 + 时间） ====== */
+.user-msg-wrapper {
+    width: auto;
+    height: auto;
+    max-width: 85%;
+    align: right middle;
+}
+
+/* ====== 用户消息气泡 ====== */
+.user-msg-bubble {
+    width: auto;
+    height: auto;
     background: $primary-darken-2;
     color: $text;
-    padding: 0 1;
-    margin-bottom: 1;
+    padding: 1 2;
+}
+
+/* ====== 下方灰色的 You 和时间 ====== */
+.user-msg-meta {
+    width: 100%;
+    height: auto;
+    color: $text-muted;   /* 灰色字体 */
+    text-style: italic;
+    text-align: right;
 }
 
 .agent-msg {
     margin-bottom: 1;
 }
 
+/* ====== 思考过程折叠框 ====== */
+Collapsible.thinking-collapsible {
+    margin: 1 0 1 1;                    /* 左侧留白，上下拉开 */
+    border: round $surface-lighten-2;   /* 暗色边框，低调 */
+    background: $surface;
+}
+
 .thinking {
     color: $text-muted;
     text-style: italic;
-    padding-left: 1;
-    margin-bottom: 1;
+    padding: 1;                         /* 展开后内部文字留点空间 */
 }
 
 .tool-call {

@@ -21,7 +21,7 @@ from src.agent.types import (
 from src.ai.api.all import get_stream_by_api
 from src.ai.model import Model
 from src.ai.model import StreamOptions
-from src.ai.type import (
+from src.ai.types import (
     UserMessage,
     AssistantMessage,
     Context,
@@ -67,6 +67,7 @@ class AgentLoop:
 
             await self._emit(AgentTurnStartEvent())
             await self._emit(AgentMessageStartEvent())
+
             async for message in stream(model, context, stream_options):
                 if stop_event.is_set():
                     break

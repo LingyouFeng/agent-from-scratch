@@ -18,7 +18,7 @@ from openai.types.chat import (
 
 from src.ai.model import Model, StreamOptions
 from src.ai.provider.all import get_provider_by_id
-from src.ai.type import (
+from src.ai.types import (
     AssistantMessage,
     Context,
     Message,

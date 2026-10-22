@@ -2,7 +2,7 @@
 
 import json
 
-from src.ai.type import Tool
+from src.ai.types import Tool
 from .base import BaseTool
 from .builtin.bash import BashTool
 from .builtin.edit import EditFileTool
