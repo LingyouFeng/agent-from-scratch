@@ -29,6 +29,7 @@ from src.agent.types import (
     AgentToolExecutionEndEvent,
     AgentToolExecutionStartEvent, AgentStatusBarUpdateEvent
 )
+from src.ai.types import AssistantMessageEventType
 from src.harness.agent import Agent
 
 
@@ -55,8 +56,12 @@ class AgentTUI(App):
 
         # 流式 thinking 状态
         self._thinking_static: Static | None = None
+        self._thinking_collapsible: Collapsible | None = None
         self._thinking_buf: list[str] = []
         self._thinking_dirty = False
+
+        # 用于追踪正在运行的工具体，key 为工具调用 ID 或工具名
+        self._running_tools: dict[str, Collapsible] = {}
 
     # ---------------------------- 布局 ---------------------------- #
     def compose(self) -> ComposeResult:
@@ -106,14 +111,25 @@ class AgentTUI(App):
                 # await self._on_turn_end()
 
             case AgentEventType.MESSAGE_UPDATE:
-                match ev.message.role:
-                    case "assistant":
-                        for content in ev.message.content:
-                            match content.type:
-                                case "text":
-                                    await self._on_delta(content.text, log)
-                                case "thinking":
-                                    await self._on_thinking_delta(content.thinking, log)
+                match ev.assistant_message_event.type:
+                    case AssistantMessageEventType.THINK_START:
+                        await self._on_thinking_start(log)
+                    case AssistantMessageEventType.THINK_DELTA:
+                        await self._on_thinking_delta(ev.assistant_message_event.delta, log)
+                    case AssistantMessageEventType.THINK_END:
+                        await self._on_thinking_end(log)
+                    case AssistantMessageEventType.TEXT_START:
+                        await self._on_text_start(log)
+                    case AssistantMessageEventType.TEXT_DELTA:
+                        await self._on_text_delta(ev.assistant_message_event.delta, log)
+                    case AssistantMessageEventType.TEXT_END:
+                        await self._on_text_end(log)
+                    case AssistantMessageEventType.TOOLCALL_START:
+                        pass
+                    case AssistantMessageEventType.TOOLCALL_DELTA:
+                        pass
+                    case AssistantMessageEventType.TOOLCALL_END:
+                        pass
 
             case AgentEventType.TOOL_EXECUTION_START:
                 await self._on_tool_execution_start(ev)
@@ -130,29 +146,64 @@ class AgentTUI(App):
 
         log.scroll_end(animate=False)
 
+    # ---------------------------- 流式 thinking ---------------------------- #
+    async def _on_thinking_start(self, log: VerticalScroll) -> None:
+        # 兜底：上一段 thinking 若没正常结束先收尾
+        await self._finalize_thinking()
+
+    async def _on_thinking_delta(self, text: str, log: VerticalScroll) -> None:
+        if self._thinking_static is None:
+            self._thinking_static = Static("", classes="thinking")
+            # 默认展开、标题「思考中」
+            self._thinking_collapsible = Collapsible(
+                self._thinking_static,
+                title="[dim]正在思考[/dim]",
+                collapsed=False,
+                classes="thinking-collapsible",
+            )
+            await log.mount(self._thinking_collapsible)
+        self._thinking_buf.append(text)
+        self._thinking_dirty = True
+
+    async def _on_thinking_end(self, log: VerticalScroll) -> None:
+        await self._finalize_thinking()
+
+    async def _finalize_thinking(self) -> None:
+        # 把最后一批 token 刷出去
+        if self._thinking_static is not None and self._thinking_buf:
+            self._thinking_static.update(escape("".join(self._thinking_buf)))
+        # 标题改成「思考完成」并自动折叠
+        if self._thinking_collapsible is not None:
+            self._thinking_collapsible.title = "[dim]思考完成[/dim]"
+            self._thinking_collapsible.collapsed = True
+        # 重置：下一次 THINK_DELTA 会创建新的 Collapsible 区域
+        self._thinking_static = None
+        self._thinking_collapsible = None
+        self._thinking_buf.clear()
+        self._thinking_dirty = False
+
     # ---------------------------- 流式正文 ---------------------------- #
-    async def _on_delta(self, text: str, log: VerticalScroll) -> None:
+    async def _on_text_start(self, log: VerticalScroll) -> None:
+        await self._finalize_text()
+
+    async def _on_text_delta(self, text: str, log: VerticalScroll) -> None:
         if self._stream_md is None:
             self._stream_md = Markdown("", classes="agent-msg")
             await log.mount(self._stream_md)
         self._stream_buf.append(text)
         self._stream_dirty = True
 
-    # ---------------------------- 流式 thinking ---------------------------- #
-    async def _on_thinking_delta(self, text: str, log: VerticalScroll) -> None:
-        if self._thinking_static is None:
-            self._thinking_static = Static("", classes="thinking")
-            # 将 Static 包进 Collapsible 中，默认折叠
-            await log.mount(
-                Collapsible(
-                    self._thinking_static,
-                    title="[dim]💭 思考过程[/dim]",
-                    collapsed=True,
-                    classes="thinking-collapsible"
-                )
-            )
-        self._thinking_buf.append(text)
-        self._thinking_dirty = True
+    async def _on_text_end(self, log: VerticalScroll) -> None:
+        await self._finalize_text()
+
+    async def _finalize_text(self) -> None:
+        # 把最后一批 token 刷出去
+        if self._stream_md is not None and self._stream_buf:
+            await self._stream_md.update("".join(self._stream_buf))
+        # 重置：下一次 TEXT_DELTA 会创建新的 Markdown 区域
+        self._stream_md = None
+        self._stream_buf.clear()
+        self._stream_dirty = False
 
     # ---------------------------- 节流刷新 ---------------------------- #
     def _flush_stream(self) -> None:
@@ -173,6 +224,7 @@ class AgentTUI(App):
 
         # thinking
         self._thinking_static = None
+        self._thinking_collapsible = None
         self._thinking_buf.clear()
         self._thinking_dirty = False
 
@@ -232,39 +284,71 @@ class AgentTUI(App):
         if ev.arguments:
             title += f"  [dim]{escape(ev.arguments)}[/dim]"
 
-        body_text = escape(ev.arguments) if ev.arguments else "[dim]（无参数）[/dim]"
-        body = Static(body_text, classes="tool-args-body")
+        args_text = escape(ev.arguments) if ev.arguments else "[dim]（无参数）[/dim]"
 
-        await log.mount(
-            Collapsible(
-                body,
-                title=title,
-                collapsed=True,
-                classes="tool-exec tool-exec-running",
-            )
+        # 使用 Vertical 容器，上方放参数，下方留给结果
+        body_container = Vertical(
+            Static(args_text, classes="tool-args-body"),
+            classes="tool-body-container"
         )
+
+        collapsible = Collapsible(
+            body_container,
+            title=title,
+            collapsed=False,  # 运行中默认展开，方便用户看参数
+            classes="tool-exec tool-exec-running",
+        )
+
+        # 假设事件里有 tool_call_id，如果没有则退回使用 tool_name
+        # 如果你的 Event 结构里没有 tool_call_id，建议加上，以防并发同名工具出错
+        call_id = getattr(ev, "tool_call_id", ev.tool_name)
+        self._running_tools[call_id] = collapsible
+
+        await log.mount(collapsible)
         log.scroll_end(animate=False)
 
     async def _on_tool_execution_end(self, ev: AgentToolExecutionEndEvent) -> None:
         log = self.query_one("#log", VerticalScroll)
+
+        call_id = getattr(ev, "tool_call_id", ev.tool_name)
+        collapsible = self._running_tools.pop(call_id, None)
+
         ok = ev.is_success
         icon = "✔" if ok else "✘"
         color = "green" if ok else "red"
         cls = "tool-exec-ok" if ok else "tool-exec-fail"
 
-        title = f"[bold {color}]{icon}[/] [bold]{escape(ev.tool_name)}[/]"
+        if collapsible is not None:
+            # 1. 更新标题
+            collapsible.title = f"[bold {color}]{icon}[/] [bold]{escape(ev.tool_name)}[/]"
 
-        body_text = escape(ev.tool_result) if ev.tool_result else "[dim]（无输出）[/dim]"
-        body = Static(body_text, classes="tool-result-body")
+            # 2. 更新外框样式（移除运行中，加上成功/失败）
+            collapsible.remove_class("tool-exec-running")
+            collapsible.add_class(cls)
 
-        await log.mount(
-            Collapsible(
-                body,
-                title=title,
-                collapsed=True,
-                classes=f"tool-exec {cls}",
+            # 3. 将输出结果塞进刚才预留的容器里
+            body_text = escape(ev.tool_result) if ev.tool_result else "[dim]（无输出）[/dim]"
+            result_static = Static(body_text, classes="tool-result-body")
+
+            container = collapsible.query_one(".tool-body-container", Vertical)
+            await container.mount(result_static)
+
+            # 4. 执行完后自动折叠
+            collapsible.collapsed = True
+        else:
+            # 兜底逻辑：如果没有找到对应的 start 事件（比如历史记录加载）
+            body_text = escape(ev.tool_result) if ev.tool_result else "[dim]（无输出）[/dim]"
+            body = Static(body_text, classes="tool-result-body")
+            title = f"[bold {color}]{icon}[/] [bold]{escape(ev.tool_name)}[/]"
+            await log.mount(
+                Collapsible(
+                    body,
+                    title=title,
+                    collapsed=True,
+                    classes=f"tool-exec {cls}",
+                )
             )
-        )
+
         log.scroll_end(animate=False)
 
     # ---------------------------- 状态栏 ---------------------------- #
@@ -321,7 +405,6 @@ class AgentTUI(App):
         # 空闲 → 走和回车一致的提交逻辑
         await self._submit_prompt(self.query_one(Input).value)
 
-
     async def _submit_prompt(self, text: str) -> None:
         """回车与按钮共用的发送逻辑。"""
         text = (text or "").strip()
@@ -365,7 +448,6 @@ class AgentTUI(App):
         else:
             btn.label = "发送"
             btn.variant = "primary"
-
 
     @work(group="agent")
     async def run_agent(self, prompt: str) -> None:

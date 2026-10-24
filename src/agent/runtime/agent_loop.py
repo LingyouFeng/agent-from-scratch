@@ -21,12 +21,12 @@ from src.agent.types import (
 from src.ai.api.all import get_stream_by_api
 from src.ai.model import Model
 from src.ai.model import StreamOptions
+from src.ai.types import AssistantMessageEventType
 from src.ai.types import (
     UserMessage,
     AssistantMessage,
     Context,
     TextContent,
-    ThinkingContent,
     ToolCall,
     ToolResultMessage,
 )
@@ -35,15 +35,20 @@ from src.util.time_util import get_timestamp_ms
 
 class AgentLoop:
 
-    def __init__(self, tool_executor: ToolExecutor, emit: Callable[[AgentEvent], Awaitable[None]]):
+    def __init__(self,
+                 tool_executor: ToolExecutor,
+                 emit: Callable[[AgentEvent], Awaitable[None]]):
         self._tool_executor = tool_executor
         self._emit = emit
         self._status_bar = StatusBar()
 
-    async def run_loop(self, model: Model,
-                       context: Context,
-                       stream_options: StreamOptions,
-                       stop_event: asyncio.Event) -> None:
+    async def run_loop(
+            self,
+            model: Model,
+            context: Context,
+            stream_options: StreamOptions,
+            stop_event: asyncio.Event,
+    ) -> None:
         await self._emit(AgentStartEvent())
         for _ in range(Constants.MAX_TURN):
             if stop_event.is_set():
@@ -60,72 +65,65 @@ class AgentLoop:
             self._inject_status_bar(context)
 
             has_tool_call = False
-            text_content = ""
-            thinking_content = ""
+
+            last_assistant_message = None
             tool_calls: list[ToolCall] = []
             tool_results: list[ToolResultMessage] = []
 
             await self._emit(AgentTurnStartEvent())
             await self._emit(AgentMessageStartEvent())
 
-            async for message in stream(model, context, stream_options):
+            async for message, event in stream(model, context, stream_options):
                 if stop_event.is_set():
                     break
-                for content in message.content:
-                    if stop_event.is_set():
-                        break
-                    if content.type == "text":
-                        text_content += content.text
 
-                    elif content.type == "thinking":
-                        thinking_content += content.thinking
+                await self._emit(AgentMessageUpdateEvent(message, event))
 
-                    elif content.type == "toolCall":
-                        has_tool_call = True
-                        tool_calls.append(content)
+                if event.type == AssistantMessageEventType.TOOLCALL_END:
+                    print("发送toolcallDelta")
 
-                        await self._emit(AgentToolExecutionStartEvent(
+                    has_tool_call = True
+                    content = event.toolcall
+                    tool_calls.append(content)
+
+                    await self._emit(
+                        AgentToolExecutionStartEvent(
                             tc_id=content.id,
                             tool_name=content.name,
                             arguments=str(content.arguments),
-                        ))
-                        is_success, tool_result = self._tool_executor.execute(content.id, content.name,
-                                                                              content.arguments)
-                        await self._emit(AgentToolExecutionEndEvent(
+                        )
+                    )
+                    is_success, tool_result = self._tool_executor.execute(
+                        content.id, content.name, content.arguments
+                    )
+                    await self._emit(
+                        AgentToolExecutionEndEvent(
                             tc_id=content.id,
                             tool_name=content.name,
                             arguments=str(content.arguments),
                             tool_result=tool_result,
                             is_success=is_success,
-                        ))
+                        )
+                    )
 
-                        tool_results.append(ToolResultMessage(
-                            role="toolResult",
-                            tool_call_id=content.id,
-                            tool_name=content.name,
-                            content=[TextContent(type="text", text=tool_result)],
-                            timestamp=int(time.time() * 1000),
-                        ))
-                await self._emit(AgentMessageUpdateEvent(message))
-                if stop_event.is_set():
-                    break
+                    tool_results.append(ToolResultMessage(
+                        tool_call_id=content.id,
+                        tool_name=content.name,
+                        content=[TextContent(text=tool_result)],
+                        timestamp=int(time.time() * 1000),
+                    ))
+
+                if event.type == AssistantMessageEventType.DONE:
+                    last_assistant_message = event.message
 
             await self._emit(AgentMessageEndEvent())
             await self._emit(AgentTurnEndEvent())
 
-            context.messages.append(
-                AssistantMessage(
-                    role="assistant",
-                    content=[
-                        *([ThinkingContent(type="thinking", thinking=thinking_content)] if thinking_content else []),
-                        TextContent(type="text", text=text_content)
-                    ],
-                    timestamp=get_timestamp_ms())
-            )
+            if last_assistant_message is not None:
+                context.messages.append(last_assistant_message)
             if len(tool_calls) > 0:
                 context.messages.extend([
                     AssistantMessage(
-                        role="assistant",
                         content=tool_calls,
                         timestamp=get_timestamp_ms()
                     ),
@@ -137,15 +135,13 @@ class AgentLoop:
         await self._emit(AgentEndEvent())
 
     def _inject_status_bar(self, context: Context) -> None:
-        """把当前状态栏作为一条 user message 注入 context。
-        """
+        """把当前状态栏作为一条 user message 注入 context。"""
         if self._status_bar is None:
             return
 
         status_text = f"<status>{self._status_bar.build()}</status>"
         msg = UserMessage(
-            role="user",
-            content=[TextContent(type="text", text=status_text)],
+            content=[TextContent(text=status_text)],
             timestamp=get_timestamp_ms(),
         )
         context.messages.append(msg)

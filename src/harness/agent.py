@@ -47,8 +47,7 @@ class Agent:
 
         try:
             self._messages.append(UserMessage(
-                role="user",
-                content=[TextContent("text", user_input)],
+                content=[TextContent(user_input)],
                 timestamp=get_timestamp_ms(),
             ))
             context = Context(SYSTEM_PROMPT, self._messages, self._tool_registry.get_all_tools())

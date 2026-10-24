@@ -3,6 +3,7 @@
     height: 1fr;
     padding: 1 1 1 2;
     scrollbar-gutter: stable;
+    background: $background; /* 显式指定深色底，确保间隙是纯正的暗色 */
 
     /* 美化滚动条 */
     scrollbar-size-vertical: 1;
@@ -12,26 +13,32 @@
     scrollbar-color-active: $primary;
 }
 
-/* 给日志里所有直接子元素右侧加间距 */
+/* 核心：统一给日志里的直接子元素下发 1 格的顶部间距 */
 #log > * {
     margin-right: 3;
+    margin-top: 1;
+}
+
+/* 确保日志里的第一个元素没有顶部间距，贴紧顶部 */
+#log > :first-child {
+    margin-top: 0;
 }
 
 /* ====== 状态栏 ====== */
 #statusbar {
     height: auto;
     max-height: 10;
-    padding: 1 2; /* 与日志区的 2 对齐 */
+    padding: 1 2;
     background: $boost;
-    border-top: solid $surface-lighten-2; /* 改成暗色，不再用刺眼的主题蓝 */
+    border-top: solid $surface-lighten-2;
 }
 
 /* ====== 输入区容器 ====== */
 #input-row {
-    height: 4; /* 增加一点高度，让上下有留白 */
+    height: 4;
     width: 100%;
-    padding: 0 2; /* 左侧留白 2，与日志对齐 */
-    margin-top: 1;    /* 新增：与上方的状态栏拉开 1 格距离 */
+    padding: 0 2;
+    margin-top: 1;
     align: center middle;
 }
 
@@ -39,12 +46,12 @@
 #prompt {
     width: 1fr;
     height: 3;
-    margin: 0; /* 去掉 margin，对齐完全交给父容器处理 */
-    border: tall $surface-lighten-2; /* 默认状态使用暗色边框 */
+    margin: 0;
+    border: tall $surface-lighten-2;
 }
 
 #prompt:focus {
-    border: tall $primary; /* 只有聚焦时才亮起 */
+    border: tall $primary;
 }
 
 /* ====== 发送按钮 ====== */
@@ -52,110 +59,109 @@
     width: 8;
     min-width: 8;
     height: 3;
-    margin: 0 0 0 1; /* 仅留左侧 1 格间距，与输入框隔开 */
+    margin: 0 0 0 1;
     padding: 0;
     content-align: center middle;
 }
 
-/* ====== 用户消息行（用于控制靠右） ====== */
+/* ====== 用户消息行 ====== */
 .user-msg-row {
     width: 100%;
     height: auto;
     align: right middle;
+    margin: 0;
+    padding: 0;
 }
 
-/* ====== 用户消息组合（气泡 + 时间） ====== */
 .user-msg-wrapper {
     width: auto;
     height: auto;
     max-width: 85%;
     align: right middle;
+    margin: 0;
+    padding: 0;
 }
 
-/* ====== 用户消息气泡 ====== */
 .user-msg-bubble {
     width: auto;
     height: auto;
     background: $primary-darken-2;
     color: $text;
     padding: 1 2;
+    margin: 0;
 }
 
-/* ====== 下方灰色的 You 和时间 ====== */
 .user-msg-meta {
-    width: 100%;
+    width: auto; /* 修复文字短时变成两行的问题 */
     height: auto;
-    color: $text-muted;   /* 灰色字体 */
+    color: $text-muted;
     text-style: italic;
-    text-align: right;
+    margin: 0;
+    padding: 0;
 }
 
+/* ====== 正文 ====== */
 .agent-msg {
-    margin-bottom: 1;
+    margin: 0;
+    padding: 0;
+    background: transparent;
 }
 
 /* ====== 思考过程折叠框 ====== */
 Collapsible.thinking-collapsible {
-    margin: 1 0 1 1;                    /* 左侧留白，上下拉开 */
-    border: round $surface-lighten-2;   /* 暗色边框，低调 */
-    background: $surface;
+    border: round $surface-lighten-3;
+    background: $surface-lighten-1; /* 略微提亮底色，增强卡片感 */
 }
 
 .thinking {
     color: $text-muted;
     text-style: italic;
-    padding: 1;                         /* 展开后内部文字留点空间 */
+    background: transparent; /* 关键：内部透明，消除色差 */
 }
 
-.tool-call {
-    color: $warning;
-    padding-left: 1;
-    margin-bottom: 1;
+/* ====== 工具执行 ====== */
+Collapsible.tool-exec,
+Collapsible.tool-exec-ok,
+Collapsible.tool-exec-fail {
+    height: auto;
+    background: $surface-lighten-1; /* 统一提亮底色 */
 }
 
-.tool-result {
-    color: $success;
-    padding-left: 1;
-    margin-bottom: 1;
+Collapsible.tool-exec {
+    padding: 0 1;
+    border-left: thick $primary;
 }
 
+Collapsible.tool-exec-running {
+    border-left: thick $warning;
+}
+
+Collapsible.tool-exec-ok {
+    border: round $success;
+}
+
+Collapsible.tool-exec-fail {
+    border: round $error;
+}
+
+/* 运行中参数和结束结果的内部样式 */
+.tool-args-body,
+.tool-result-body {
+    padding: 0 1;
+    background: transparent; /* 关键：内部透明 */
+    color: $text;
+    margin: 0;
+}
+
+/* ====== 其他 ====== */
 .error {
     color: $error;
     padding-left: 1;
-    margin-bottom: 1;
+    margin: 0;
 }
 
 .turn-divider {
     color: $text-muted;
     padding: 0 1;
-    margin: 1 0 0 0;
-}
-
-.tool-exec {
-    margin: 0 0 0 1;
-    padding: 0 1;
-    border-left: thick $primary;
-    background: $surface;
-}
-
-.tool-exec-running {
-    border-left: thick $warning;
-}
-
-Collapsible.tool-exec-ok {
-    margin: 0 0 1 1;
-    border: round $success;
-    background: $surface;
-}
-
-Collapsible.tool-exec-fail {
-    margin: 0 0 1 1;
-    border: round $error;
-    background: $surface;
-}
-
-.tool-result-body {
-    padding: 1;
-    background: $surface;
-    color: $text;
+    margin: 0;
 }

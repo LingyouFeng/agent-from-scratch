@@ -3,33 +3,44 @@
 """
 
 import json
+import logging
 from typing import AsyncIterator
 
-from openai import (
-    APIConnectionError,
-    APITimeoutError,
-    AsyncOpenAI,
-    RateLimitError,
-)
+from openai import APIConnectionError, APITimeoutError, AsyncOpenAI, RateLimitError
 from openai.types.chat import (
     ChatCompletionFunctionToolParam,
-    ChatCompletionMessageParam,
+    ChatCompletionMessageParam, ChatCompletionSystemMessageParam,
 )
 
 from src.ai.model import Model, StreamOptions
 from src.ai.provider.all import get_provider_by_id
 from src.ai.types import (
     AssistantMessage,
+    AssistantMessageDoneEvent,
+    AssistantMessageEvent,
+    AssistantMessageStartEvent,
+    AssistantMessageTextDeltaEvent,
+    AssistantMessageTextEndEvent,
+    AssistantMessageTextStartEvent,
+    AssistantMessageThinkDeltaEvent,
+    AssistantMessageThinkEndEvent,
+    AssistantMessageThinkStartEvent,
+    AssistantMessageToolCallDeltaEvent,
+    AssistantMessageToolCallEndEvent,
+    AssistantMessageToolCallStartEvent,
     Context,
     Message,
     TextContent,
     ThinkingContent,
     ToolCall,
 )
+from src.ai.types import AssistantMessageErrorEvent
 from src.util.time_util import get_timestamp_ms
 
 
-async def stream(model: Model, context: Context, options: StreamOptions | None = None) -> AsyncIterator[AssistantMessage]:
+async def stream(
+        model: Model, context: Context, options: StreamOptions | None = None
+) -> AsyncIterator[tuple[AssistantMessage, AssistantMessageEvent]]:
     provider = get_provider_by_id(model.provider)
     if provider is None:
         raise ValueError(f"No built-in provider {provider} with model {model.id}")
@@ -38,7 +49,7 @@ async def stream(model: Model, context: Context, options: StreamOptions | None =
 
     # 组装请求messages：系统提示 + 历史消息
     api_messages: list[ChatCompletionMessageParam] = [
-        {"role": "system", "content": context.systemPrompt}
+        ChatCompletionSystemMessageParam(role="system", content=context.systemPrompt)
     ]
     api_messages.extend(
         converted for msg in context.messages if (converted := convert_message(msg))
@@ -58,130 +69,229 @@ async def stream(model: Model, context: Context, options: StreamOptions | None =
             )
             api_tools.append(tool)
 
-    # print("=" * 100)
-    # print(api_messages)
-    # print("=" * 100)
+    content: list[TextContent | ThinkingContent | ToolCall] = []
+    text_index, think_index, toolcall_index = None, None, {}
+    text_buffer, think_buffer, toolcall_buffer = "", "", {}
+    assistant_message = AssistantMessage(content=content, timestamp=get_timestamp_ms())
+
     try:
         stream_enabled = options.stream if options else False
+        thinking_level = options.thinking_level if options else "none"
         response = await client.chat.completions.create(
             model=model.name,
             messages=api_messages,
             stream=stream_enabled,
             stream_options={"include_usage": True},
             tools=api_tools,
-            reasoning_effort=options.thinking_level,
+            reasoning_effort=thinking_level,
         )
 
-        if stream_enabled:
-            tool_call_buffers: list[ToolCall] = []
-            tool_args_buffers: dict[int, str] = {}
+        # 发送 start 事件
+        yield assistant_message, AssistantMessageStartEvent()
 
+        if stream_enabled:
             async for chunk in response:
                 if not chunk.choices:
                     continue
                 choice = chunk.choices[0]
                 delta = choice.delta
+                assistant_message.timestamp = chunk.created
 
                 # 思考文本
                 reasoning = getattr(delta, "reasoning", None)
                 if reasoning:
-                    yield AssistantMessage(
-                        role="assistant",
-                        content=[ThinkingContent(type="thinking", thinking=reasoning)],
-                        timestamp=get_timestamp_ms(),
+                    # 发送 think_start 事件
+                    if think_index is None:
+                        think_index = len(content)
+                        content.append(ThinkingContent(think_buffer))
+                        yield assistant_message, AssistantMessageThinkStartEvent(
+                            content_index=think_index,
+                            partial=assistant_message,
+                        )
+                    # 发送 think_delta 事件
+                    think_buffer += reasoning
+                    content[think_index] = ThinkingContent(think_buffer)
+                    yield assistant_message, AssistantMessageThinkDeltaEvent(
+                        content_index=think_index,
+                        delta=reasoning,
+                        partial=assistant_message,
                     )
 
-                # 正常响应文本
-                if delta.content:
-                    yield AssistantMessage(
-                        role="assistant",
-                        content=[TextContent(type="text", text=delta.content)],
-                        timestamp=get_timestamp_ms(),
+                # 回复文本
+                text = delta.content
+                if text:
+                    # 发送 text_start 事件
+                    if text_index is None:
+                        text_index = len(content)
+                        content.append(TextContent(text_buffer))
+                        yield assistant_message, AssistantMessageTextStartEvent(
+                            content_index=text_index,
+                            partial=assistant_message,
+                        )
+                    # 发送 text_delta 事件
+                    text_buffer += text
+                    content[text_index] = TextContent(text_buffer)
+                    yield assistant_message, AssistantMessageTextDeltaEvent(
+                        content_index=text_index,
+                        delta=text,
+                        partial=assistant_message,
                     )
 
-                # 收集工具调用
+                # 工具调用
                 if delta.tool_calls:
                     for tc in delta.tool_calls:
-                        # 若 function 为 None，则无法提取有效信息，跳过该次迭代
                         if tc.function is None:
                             continue
+                        # 发送 toolcall_start 事件
+                        if toolcall_index.get(tc.index, None) is None:
+                            toolcall_index[tc.index] = len(content)
+                            toolcall_buffer[tc.index] = {"id": tc.id, "name": tc.function.name, "args": ""}
 
-                        # 确保 tool_calls 列表长度足够
-                        while len(tool_call_buffers) <= tc.index:
-                            tool_call_buffers.append(
-                                ToolCall(
-                                    type="toolCall",
-                                    id="",
-                                    name="",
-                                    arguments={},
-                                )
+                            content.append(toolcall_buffer[tc.index])
+                            yield assistant_message, AssistantMessageToolCallStartEvent(
+                                content_index=toolcall_index[tc.index],
+                                partial=assistant_message,
                             )
-                        if tc.index not in tool_args_buffers:
-                            tool_args_buffers[tc.index] = ""
+                        # 发送 toolcall_delta 事件
+                        toolcall_buffer[tc.index]["args"] += tc.function.arguments or ""
 
-                        tool_call = tool_call_buffers[tc.index]
-
-                        # 更新 id（可能是在当前或后续 chunk 中提供）
-                        if tc.id is not None:
-                            tool_call.id = tc.id
-
-                        # 更新 function name（可能是在后续 chunk 中提供）
-                        if tc.function.name is not None:
-                            tool_call.name = tc.function.name
-
-                        # 拼接 arguments 的原始 JSON 字符串
-                        if tc.function.arguments is not None:
-                            tool_args_buffers[tc.index] += tc.function.arguments
-
-                        # 尝试去解析工具调用
-                        raw_json = tool_args_buffers[tc.index]
+                        # 尝试去解析工具调用，这里只解析完整的json，不支持增量解析
+                        raw_json = toolcall_buffer[tc.index]["args"]
                         try:
                             arguments = json.loads(raw_json)
-                            tool_call.arguments = arguments
-                            # print(f"\ntool {tool_call.name} arguments json解析成功，直接返回")
-                            yield AssistantMessage(
-                                role="assistant",
-                                content=[tool_call],
-                                timestamp=get_timestamp_ms(),
+                            content[toolcall_index[tc.index]] = ToolCall(
+                                id=toolcall_buffer[tc.index]["id"],
+                                name=toolcall_buffer[tc.index]["name"],
+                                arguments=arguments,
                             )
-
+                            yield assistant_message, AssistantMessageToolCallDeltaEvent(
+                                content_index=toolcall_index[tc.index],
+                                delta=raw_json,
+                                partial=assistant_message,
+                            )
                         except json.JSONDecodeError as e:
                             pass
-                            # print(f"\ntool {tool_call.name} arguments json解析失败！继续等待后续片段, raw={raw_json}")
+
+                # 结束
+                if choice.finish_reason:
+                    if think_index is not None:
+                        yield assistant_message, AssistantMessageThinkEndEvent(
+                            content_index=think_index,
+                            content=think_buffer,
+                            partial=assistant_message,
+                        )
+                    if text_index is not None:
+                        yield assistant_message, AssistantMessageTextEndEvent(
+                            content_index=text_index,
+                            content=text_buffer,
+                            partial=assistant_message,
+                        )
+                    for toolcall_index in toolcall_index.values():
+                        yield assistant_message, AssistantMessageToolCallEndEvent(
+                            content_index=toolcall_index,
+                            toolcall=content[toolcall_index],
+                            partial=assistant_message,
+                        )
+                    # 发送 end 事件
+                    yield assistant_message, AssistantMessageDoneEvent(
+                        reason=choice.finish_reason,
+                        message=assistant_message,
+                    )
 
         else:
-            # 非流式
-            content_list: list[TextContent | ThinkingContent | ToolCall] = []
-            message = response.choices[0].message
+            choice = response.choices[0]
+            message = choice.message
+            assistant_message.timestamp = response.created * 1000
 
             if message:
-                content_list.append(TextContent(type="text", text=message.content))
+                think_buffer = getattr(message, "reasoning", None)
+                if think_buffer:
+                    think_index = len(content)
+                    # 发送 think_start 事件
+                    yield assistant_message, AssistantMessageThinkStartEvent(
+                        content_index=think_index,
+                        partial=assistant_message,
+                    )
+                    content.append(ThinkingContent(thinking=think_buffer))
+                    # 发送 think_delta 事件
+                    yield assistant_message, AssistantMessageThinkDeltaEvent(
+                        content_index=think_index,
+                        delta=think_buffer,
+                        partial=assistant_message,
+                    )
+                    # 发送 think_end 事件
+                    yield assistant_message, AssistantMessageThinkEndEvent(
+                        content_index=think_index,
+                        content=think_buffer,
+                        partial=assistant_message,
+                    )
 
-            for tc in message.tool_calls or []:
+                text_buffer = message.content
+                if text_buffer:
+                    text_index = len(content)
+                    # 发送 text_start 事件
+                    yield assistant_message, AssistantMessageTextStartEvent(
+                        content_index=text_index,
+                        partial=assistant_message,
+                    )
+                    content.append(TextContent(text=text_buffer))
+                    # 发送 text_delta 事件
+                    yield assistant_message, AssistantMessageTextDeltaEvent(
+                        content_index=text_index,
+                        delta=text_buffer,
+                        partial=assistant_message,
+                    )
+                    # 发送 text_end 事件
+                    yield assistant_message, AssistantMessageTextEndEvent(
+                        content_index=text_index,
+                        content=text_buffer,
+                        partial=assistant_message,
+                    )
+
+            for idx, tc in enumerate(message.tool_calls or []):
                 try:
                     arguments = json.loads(tc.function.arguments or "{}")
                 except json.JSONDecodeError as e:
                     raise ValueError(
                         f"Tool {tc.function.name} arguments JSON 解析失败"
                     ) from e
-
-                content_list.append(
-                    ToolCall(
-                        type="toolCall",
-                        id=tc.id,
-                        name=tc.function.name,
-                        arguments=arguments,
-                    )
+                # 发送 toolcall_start 事件
+                toolcall_index[idx] = len(content)
+                content.append(ToolCall(id="", name="", arguments={}))
+                yield assistant_message, AssistantMessageToolCallStartEvent(
+                    content_index=toolcall_index[idx],
+                    partial=assistant_message,
+                )
+                # 发送 toolcall_delta 事件
+                content[toolcall_index[idx]] = ToolCall(
+                    id=tc.id,
+                    name=tc.function.name,
+                    arguments=arguments
+                )
+                yield assistant_message, AssistantMessageToolCallDeltaEvent(
+                    content_index=toolcall_index[idx],
+                    delta=tc.function.arguments,
+                    partial=assistant_message,
+                )
+                # 发送 toolcall_end 事件
+                yield assistant_message, AssistantMessageToolCallEndEvent(
+                    content_index=toolcall_index[idx],
+                    toolcall=content[toolcall_index[idx]],
+                    partial=assistant_message,
                 )
 
-            yield AssistantMessage(
-                role="assistant",
-                content=content_list,
-                timestamp=get_timestamp_ms(),
-            )
+            if choice.finish_reason:
+                yield assistant_message, AssistantMessageDoneEvent(
+                    reason=choice.finish_reason,
+                    message=assistant_message,
+                )
 
     except (RateLimitError, APITimeoutError, APIConnectionError) as e:
-        print(f"\n遇到异常 {type(e).__name__}")
+        logging.error(f"\n遇到异常 {type(e).__name__}")
+        yield assistant_message, AssistantMessageErrorEvent(
+            reason="error",
+            error=assistant_message,
+        )
         raise
 
 
@@ -219,7 +329,7 @@ def convert_message(msg: Message) -> ChatCompletionMessageParam | None:
                         "type": "function",
                         "function": {
                             "name": item.name,
-                            "arguments": json.dumps(item.arguments)
+                            "arguments": json.dumps(item.arguments),
                         },
                     }
                 )
@@ -227,7 +337,7 @@ def convert_message(msg: Message) -> ChatCompletionMessageParam | None:
             "role": "assistant",
             "reasoning_content": reasoning_text,
             "content": content_parts,
-            **({"tool_calls": tool_calls} if tool_calls else {})
+            **({"tool_calls": tool_calls} if tool_calls else {}),
         }
     elif msg.role == "toolResult":
         content_parts = []
