@@ -106,46 +106,42 @@ ConversationView > :first-child {
 
 /* ====== 正文 ====== */
 .agent-msg {
-    margin: 0;
+    margin: 1 0 0 0;
     padding: 0;
     background: transparent;
 }
 
 /* ====== 思考过程折叠框 ====== */
 Collapsible.thinking-collapsible {
-    border: round $surface-lighten-3;
-    background: $surface-lighten-1; /* 略微提亮底色，增强卡片感 */
+    border-left: thick $surface-lighten-3;
+    background: transparent;
 }
 
 .thinking {
     color: $text-muted;
     text-style: italic;
-    background: transparent; /* 关键：内部透明，消除色差 */
+    background: transparent;
 }
 
-/* ====== 工具执行 ====== */
+/* 工具执行框：统一改为仅保留左侧竖线，背景透明 */
 Collapsible.tool-exec,
 Collapsible.tool-exec-ok,
-Collapsible.tool-exec-fail {
-    height: auto;
-    background: $surface-lighten-1; /* 统一提亮底色 */
+Collapsible.tool-exec-fail,
+Collapsible.tool-exec-running {
+    background: transparent;          /* 背景透明，与父容器一致 */
+    border: none;                     /* 清除全包围边框 */
+    border-left: thick $primary;      /* 只保留左侧竖线，颜色可按需调整 */
 }
 
-Collapsible.tool-exec {
-    padding: 0 1;
-    border-left: thick $primary;
-}
-
+/* 不同状态可微调竖线颜色以示区分（可选） */
 Collapsible.tool-exec-running {
     border-left: thick $warning;
 }
-
 Collapsible.tool-exec-ok {
-    border: round $success;
+    border-left: thick $success;
 }
-
 Collapsible.tool-exec-fail {
-    border: round $error;
+    border-left: thick $error;
 }
 
 /* 运行中参数和结束结果的内部样式 */
@@ -156,16 +152,13 @@ Collapsible.tool-exec-fail {
     color: $text;
     margin: 0;
 }
+.tool-body-container {
+    height: auto;
+}
 
 /* ====== 其他 ====== */
 .error {
     color: $error;
     padding-left: 1;
-    margin: 0;
-}
-
-.turn-divider {
-    color: $text-muted;
-    padding: 0 1;
     margin: 0;
 }

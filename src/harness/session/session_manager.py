@@ -1,10 +1,9 @@
-from dataclasses import field
-from datetime import datetime
 import json
-from pathlib import Path
 import uuid
+from datetime import datetime
+from pathlib import Path
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from pydantic import TypeAdapter, ValidationError
 from pydantic_core import to_jsonable_python
 
@@ -13,14 +12,15 @@ from src.agent.types import AgentMessage
 
 class SessionMeta(BaseModel):
     id: str
-    title: str = field(default="untitled")
-    created_at: datetime = field(default=datetime.now())
-    updated_at: datetime = field(default=datetime.now())
+    title: str = Field(default="untitled")
+    created_at: datetime = Field(default=datetime.now())
+    updated_at: datetime = Field(default=datetime.now())
 
 
 # 文件格式：list[SessionMeta]
 _SessionList = TypeAdapter(list[SessionMeta])
 _AgentMessageAdapter = TypeAdapter(AgentMessage)
+
 
 class SessionIndex:
     """会话元数据管理"""
@@ -67,10 +67,10 @@ class SessionIndex:
 
 class SessionItem(BaseModel):
     id: str
-    title: str = field(default="untitled")
-    preview: str = field(default="")
-    created_at: datetime = field(default=datetime.now())
-    updated_at: datetime = field(default=datetime.now())
+    title: str = Field(default="untitled")
+    preview: str = Field(default="")
+    created_at: datetime = Field(default=datetime.now())
+    updated_at: datetime = Field(default=datetime.now())
 
 
 class SessionManager:
@@ -88,7 +88,7 @@ class SessionManager:
 
     def new_session(self, title: str = "untitled") -> str:
         session_id = (
-            datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + uuid.uuid4().hex[:8]
+                datetime.now().strftime("%Y%m%d_%H%M%S") + "_" + uuid.uuid4().hex[:8]
         )
         session_meta = SessionMeta(id=session_id, title=title)
         self._session_index.upsert_index(session_meta)

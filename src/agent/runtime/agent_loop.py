@@ -117,6 +117,7 @@ class AgentLoop:
                         tool_name=content.name,
                         content=[TextContent(text=tool_result)],
                         timestamp=get_timestamp_ms(),
+                        is_success=is_success
                     ))
 
                 if event.type == AssistantMessageEventType.DONE:
@@ -140,6 +141,7 @@ class AgentLoop:
         await self._emit(AgentEndEvent(context.messages))
 
     def _inject_status_bar(self, context: Context) -> None:
+        return
         """把当前状态栏作为一条 user message 注入 context。"""
         if self._status_bar is None:
             return

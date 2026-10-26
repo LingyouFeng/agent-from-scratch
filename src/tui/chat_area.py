@@ -70,11 +70,11 @@ class ConversationView(VerticalScroll):
         """流式：分发 assistant 消息事件。"""
         match ev.assistant_message_event.type:
             case AssistantMessageEventType.THINK_START:
-                await self._on_thinking_start()
+                await self._on_think_start()
             case AssistantMessageEventType.THINK_DELTA:
-                await self._on_thinking_delta(ev.assistant_message_event.delta)
+                await self._on_think_delta(ev.assistant_message_event.delta)
             case AssistantMessageEventType.THINK_END:
-                await self._on_thinking_end()
+                await self._on_think_end()
             case AssistantMessageEventType.TEXT_START:
                 await self._on_text_start()
             case AssistantMessageEventType.TEXT_DELTA:
@@ -115,8 +115,8 @@ class ConversationView(VerticalScroll):
                 for item in msg.content:
                     if isinstance(item, ThinkingContent):
                         # 完整 thinking 当作一次 delta 重放
-                        await self._on_thinking_delta(item.thinking)
-                        await self._on_thinking_end()
+                        await self._on_think_delta(item.thinking)
+                        await self._on_think_end()
                     elif isinstance(item, TextContent):
                         await self._on_text_delta(item.text)
                         await self._on_text_end()
@@ -140,7 +140,7 @@ class ConversationView(VerticalScroll):
                         tool_name=msg.tool_name,
                         arguments="",
                         tool_result=result,
-                        is_success=None,  # 历史记录里没有成败标记，用中性样式
+                        is_success=msg.is_success,
                     )
                 )
 
@@ -169,11 +169,11 @@ class ConversationView(VerticalScroll):
         self.scroll_end(animate=False)
 
     # ---------------------------- 流式 thinking ---------------------------- #
-    async def _on_thinking_start(self) -> None:
+    async def _on_think_start(self) -> None:
         # 兜底：上一段 thinking 若没正常结束先收尾
         await self._finalize_thinking()
 
-    async def _on_thinking_delta(self, text: str) -> None:
+    async def _on_think_delta(self, text: str) -> None:
         if self._thinking_static is None:
             self._thinking_static = Static("", classes="thinking")
             # 默认展开、标题「思考中」
@@ -182,12 +182,14 @@ class ConversationView(VerticalScroll):
                 title="[dim]正在思考[/dim]",
                 collapsed=False,
                 classes="thinking-collapsible",
+                collapsed_symbol="",
+                expanded_symbol="",
             )
             await self.mount(self._thinking_collapsible)
         self._thinking_buf.append(text)
         self._thinking_dirty = True
 
-    async def _on_thinking_end(self) -> None:
+    async def _on_think_end(self) -> None:
         await self._finalize_thinking()
 
     async def _finalize_thinking(self) -> None:
@@ -257,25 +259,6 @@ class ConversationView(VerticalScroll):
         self._flush_stream()
         self.reset_stream()
 
-    # ---------------------------- 轮次 ---------------------------- #
-    async def on_turn_start(self, turn: int) -> None:
-        await self.mount(
-            Static(
-                f"[dim]── 第 {turn} 轮 ──[/dim]",
-                classes="turn-divider",
-            )
-        )
-        self.scroll_end(animate=False)
-
-    async def on_turn_end(self, turn: int) -> None:
-        await self.mount(
-            Static(
-                f"[dim]── 第 {turn} 轮结束 ──[/dim]",
-                classes="turn-divider",
-            )
-        )
-        self.scroll_end(animate=False)
-
     # ---------------------------- 工具执行 ---------------------------- #
     async def _on_tool_execution_start(self, ev: AgentToolExecutionStartEvent) -> None:
         title = f"[yellow]🔧[/] [bold cyan]{escape(ev.tool_name)}[/]"
@@ -295,6 +278,8 @@ class ConversationView(VerticalScroll):
             title=title,
             collapsed=False,  # 运行中默认展开，方便用户看参数
             classes="tool-exec tool-exec-running",
+            collapsed_symbol="",
+            expanded_symbol="",
         )
 
         call_id = getattr(ev, "tc_id", ev.tool_name)
@@ -317,7 +302,7 @@ class ConversationView(VerticalScroll):
 
         if collapsible is not None:
             # 1. 更新标题
-            collapsible.title = f"[bold {color}]{icon}[/] [bold]{escape(ev.tool_name)}[/]"
+            collapsible.title = f"[bold {color}]{icon}[/]  [bold]{escape(ev.tool_name)}[/]"
 
             # 2. 更新外框样式（移除运行中，加上成功/失败）
             collapsible.remove_class("tool-exec-running")
@@ -343,6 +328,8 @@ class ConversationView(VerticalScroll):
                     title=title,
                     collapsed=True,
                     classes=f"tool-exec {cls}",
+                    collapsed_symbol="",
+                    expanded_symbol="",
                 )
             )
 
@@ -393,6 +380,19 @@ class ChatArea(Vertical):
         for sid, v in self._views.items():
             v.display = sid == session_id
         view.scroll_end(animate=False)
+        return view
+
+    def rename_view(self, old_id: str, new_id: str) -> ConversationView | None:
+        """把视图从 old_id 重命名到 new_id（用于草稿视图转正）。
+
+        若 new_id 已存在则直接返回已有视图；否则搬移并更新 session_id。
+        """
+        if new_id in self._views:
+            return self._views[new_id]
+        view = self._views.pop(old_id, None)
+        if view is not None:
+            view.session_id = new_id
+            self._views[new_id] = view
         return view
 
     # ---------------------------- 输入区 ---------------------------- #

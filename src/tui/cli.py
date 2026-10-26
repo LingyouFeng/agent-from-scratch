@@ -33,6 +33,8 @@ from src.tui.chat_area import ChatArea, ConversationView
 from src.tui.sidebar import Sidebar
 
 
+_DRAFT_SESSION_ID = "__draft__"
+
 class AgentTUI(App):
     # Textual 的 CSS_PATH 只在 App/Screen 上生效，组件样式文件统一在这里加载
     CSS_PATH = [
@@ -71,8 +73,6 @@ class AgentTUI(App):
         self.title = "Agent TUI"
         self.sub_title = "idle"
         self.query_one(Input).focus()
-        # 没有选择任何会话 → 创建新会话
-        await self._new_session()
 
     @property
     def chat_area(self) -> ChatArea:
@@ -91,19 +91,25 @@ class AgentTUI(App):
     @property
     def _active_view(self) -> ConversationView | None:
         if self._active_id is None:
-            return None
+            return self.chat_area.get_view(_DRAFT_SESSION_ID)
         return self.chat_area.get_view(self._active_id)
 
     # ------------------------ 会话管理 ------------------------ #
     async def _new_session(self) -> None:
         """创建并激活一个新会话。"""
         session_id = self.session_manager.new_session()
+
+        # 草稿视图存在则改名复用；否则会在 _activate 中新建
+        reused_draft = self.chat_area.rename_view(_DRAFT_SESSION_ID, session_id) is not None
+
         self._runtimes[session_id] = SessionRuntime(session_id, self.session_manager)
         self.consume_events(self._runtimes[session_id])
 
         self.sidebar.refresh_sessions()
         await self._activate(session_id)
-        self.notify("已创建新对话", title="新建对话")
+
+        if not reused_draft:
+            self.notify("已创建新对话", title="新建对话")
 
     async def _activate(self, session_id: str, history=None) -> None:
         """激活会话：创建视图（首次）、加载历史、切换显示、同步输入区状态。"""
@@ -242,9 +248,22 @@ class AgentTUI(App):
         await self._submit_prompt(event.value)
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
-        # 新建对话：即使当前会话在流式输出也可以新建（各会话独立运行）
+        # 新建对话：进入草稿模式，不立即创建 session
         if event.button.id == "new-chat-btn":
-            await self._new_session()
+            chat = self.chat_area
+            if chat.get_view(_DRAFT_SESSION_ID) is None:
+                await chat.create_view(_DRAFT_SESSION_ID)
+            await chat.show_view(_DRAFT_SESSION_ID)
+            self._active_id = None
+
+            inp = chat.input
+            inp.value = ""
+            inp.disabled = False
+            inp.focus()
+            self._set_running(False)
+            self.sub_title = "idle"
+            # 清除侧边栏高亮（空字符串表示无选中）
+            self.sidebar.highlight_session("")
             return
 
         if event.button.id != "send":
@@ -272,13 +291,17 @@ class AgentTUI(App):
 
     async def _submit_prompt(self, text: str) -> None:
         """回车与按钮共用的发送逻辑：发给当前激活的会话。"""
-        runtime = self._active_runtime
-        view = self._active_view
-        if runtime is None or view is None:
+        text = (text or "").strip()
+        if not text:
             return
 
-        text = (text or "").strip()
-        if not text or runtime.agent.busy:
+        # 草稿模式：首次真正发送时才创建 session
+        if self._active_id is None:
+            await self._new_session()
+
+        runtime = self._active_runtime
+        view = self._active_view
+        if runtime is None or view is None or runtime.agent.busy:
             return
 
         inp = self.chat_area.input

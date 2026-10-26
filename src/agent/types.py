@@ -33,14 +33,14 @@ class AgentEventType(str, Enum):
 @dataclass(frozen=True)
 class AgentStartEvent:
     type: Literal[AgentEventType.AGENT_START] = field(
-        default=AgentEventType.AGENT_START, init=False
+        default=AgentEventType.AGENT_START, kw_only=True
     )
 
 
 @dataclass(frozen=True)
 class AgentEndEvent:
     type: Literal[AgentEventType.AGENT_END] = field(
-        default=AgentEventType.AGENT_END, init=False
+        default=AgentEventType.AGENT_END, kw_only=True
     )
     messages: list[AgentMessage]
 
@@ -48,14 +48,14 @@ class AgentEndEvent:
 @dataclass(frozen=True)
 class AgentTurnStartEvent:
     type: Literal[AgentEventType.TURN_START] = field(
-        default=AgentEventType.TURN_START, init=False
+        default=AgentEventType.TURN_START, kw_only=True
     )
 
 
 @dataclass(frozen=True)
 class AgentTurnEndEvent:
     type: Literal[AgentEventType.TURN_END] = field(
-        default=AgentEventType.TURN_END, init=False
+        default=AgentEventType.TURN_END, kw_only=True
     )
     message: AgentMessage
     tool_results: list[ToolResultMessage]
@@ -64,7 +64,7 @@ class AgentTurnEndEvent:
 @dataclass(frozen=True)
 class AgentMessageStartEvent:
     type: Literal[AgentEventType.MESSAGE_START] = field(
-        default=AgentEventType.MESSAGE_START, init=False
+        default=AgentEventType.MESSAGE_START, kw_only=True
     )
     message: AgentMessage
 
@@ -72,7 +72,7 @@ class AgentMessageStartEvent:
 @dataclass(frozen=True)
 class AgentMessageUpdateEvent:
     type: Literal[AgentEventType.MESSAGE_UPDATE] = field(
-        default=AgentEventType.MESSAGE_UPDATE, init=False
+        default=AgentEventType.MESSAGE_UPDATE, kw_only=True
     )
     message: AgentMessage
     assistant_message_event: AssistantMessageEvent
@@ -81,7 +81,7 @@ class AgentMessageUpdateEvent:
 @dataclass(frozen=True)
 class AgentMessageEndEvent:
     type: Literal[AgentEventType.MESSAGE_END] = field(
-        default=AgentEventType.MESSAGE_END, init=False
+        default=AgentEventType.MESSAGE_END, kw_only=True
     )
     message: AgentMessage
 
@@ -89,7 +89,7 @@ class AgentMessageEndEvent:
 @dataclass(frozen=True)
 class AgentToolExecutionStartEvent:
     type: Literal[AgentEventType.TOOL_EXECUTION_START] = field(
-        default=AgentEventType.TOOL_EXECUTION_START, init=False
+        default=AgentEventType.TOOL_EXECUTION_START, kw_only=True
     )
     tc_id: str
     tool_name: str
@@ -99,7 +99,7 @@ class AgentToolExecutionStartEvent:
 @dataclass(frozen=True)
 class AgentToolExecutionUpdateEvent:
     type: Literal[AgentEventType.TOOL_EXECUTION_UPDATE] = field(
-        default=AgentEventType.TOOL_EXECUTION_UPDATE, init=False
+        default=AgentEventType.TOOL_EXECUTION_UPDATE, kw_only=True
     )
     tc_id: str
     tool_name: str
@@ -110,7 +110,7 @@ class AgentToolExecutionUpdateEvent:
 @dataclass(frozen=True)
 class AgentToolExecutionEndEvent:
     type: Literal[AgentEventType.TOOL_EXECUTION_END] = field(
-        default=AgentEventType.TOOL_EXECUTION_END, init=False
+        default=AgentEventType.TOOL_EXECUTION_END, kw_only=True
     )
     tc_id: str
     tool_name: str
@@ -122,7 +122,7 @@ class AgentToolExecutionEndEvent:
 @dataclass(frozen=True)
 class AgentStatusBarUpdateEvent:
     type: Literal[AgentEventType.STATUS_BAR_UPDATE] = field(
-        default=AgentEventType.STATUS_BAR_UPDATE, init=False
+        default=AgentEventType.STATUS_BAR_UPDATE, kw_only=True
     )
     status_bar: str
 
