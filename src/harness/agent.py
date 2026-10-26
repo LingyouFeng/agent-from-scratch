@@ -10,6 +10,7 @@ from src.agent.types import AgentEvent
 from src.ai.model import StreamOptions
 from src.ai.provider.all import get_model_by_id
 from src.ai.types import Context, Message, TextContent, UserMessage
+from src.harness.event_bus import EventBus
 from src.util.time_util import get_timestamp_ms
 
 WD = Constants.WORKDIR
@@ -17,8 +18,9 @@ SYSTEM_PROMPT = Constants.SYSTEM_PROMPT
 
 
 class Agent:
-    def __init__(self, out: asyncio.Queue[AgentEvent]) -> None:
-        self.out = out
+    def __init__(self, bus: EventBus, messages: list[Message]) -> None:
+        self.bus = bus
+        self._messages = messages
         self.busy = False
         self._tool_registry = ToolRegistry()
         self._tool_executor = ToolExecutor(
@@ -28,15 +30,14 @@ class Agent:
         )
         self._stream_option = StreamOptions()
         self._agent_loop = AgentLoop(self._tool_executor, self.emit)
-        self._messages: list[Message] = []
         self._model = get_model_by_id("cmhi/deepseek-v4.1-flash")
 
         # 当前运行的停止信号
         self._stop_event: asyncio.Event | None = None
 
     async def emit(self, ev: AgentEvent) -> None:
-        if self.out:
-            await self.out.put(ev)
+        if self.bus:
+            await self.bus.publish(ev)
 
     async def run(self, user_input: str) -> None:
         if self.busy:
@@ -46,12 +47,13 @@ class Agent:
         self._stop_event = stop_event
 
         try:
-            self._messages.append(UserMessage(
+            user_message = UserMessage(
                 content=[TextContent(user_input)],
                 timestamp=get_timestamp_ms(),
-            ))
+            )
+            self._messages.append(user_message)
             context = Context(SYSTEM_PROMPT, self._messages, self._tool_registry.get_all_tools())
-            await self._agent_loop.run_loop(self._model, context, self._stream_option, stop_event)
+            await self._agent_loop.run_loop(self._model, user_message, context, self._stream_option, stop_event)
 
         finally:
             self.busy = False

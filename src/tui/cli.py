@@ -11,7 +11,6 @@ UI 层完全不关心 Agent 内部逻辑，只认队列里的事件；
 
 from __future__ import annotations
 
-import asyncio
 import datetime
 from pathlib import Path
 
@@ -20,7 +19,7 @@ from rich.text import Text
 from textual import work
 from textual.app import App, ComposeResult
 from textual.containers import VerticalScroll, Horizontal, Vertical
-from textual.widgets import Collapsible, Button
+from textual.widgets import Collapsible, Button, ListView, ListItem, Label
 from textual.widgets import Footer, Header, Input, Markdown, Static
 
 from src.agent.types import (
@@ -31,6 +30,8 @@ from src.agent.types import (
 )
 from src.ai.types import AssistantMessageEventType
 from src.harness.agent import Agent
+from src.harness.event_bus import EventBus
+from src.util.text_util import _is_non_text
 
 
 class AgentTUI(App):
@@ -41,10 +42,10 @@ class AgentTUI(App):
         ("ctrl+n", "focus_input", "聚焦输入"),
     ]
 
-    def __init__(self) -> None:
+    def __init__(self, agent: Agent, bus: EventBus) -> None:
         super().__init__()
-        self.events: asyncio.Queue[AgentEvent] = asyncio.Queue()
-        self.agent = Agent(self.events)
+        self.bus = bus
+        self.agent = agent
 
         # 轮次计数
         self._turn = 0
@@ -66,10 +67,21 @@ class AgentTUI(App):
     # ---------------------------- 布局 ---------------------------- #
     def compose(self) -> ComposeResult:
         yield Header()
-        yield VerticalScroll(id="log")
-        with Horizontal(id="input-row"):
-            yield Input(placeholder="输入消息，回车发送…", id="prompt")
-            yield Button("发送", id="send", variant="primary")
+
+        # 主布局：左右分栏
+        with Horizontal(id="main-layout"):
+            # 左侧边栏：对话列表
+            with Vertical(id="sidebar"):
+                yield Button("[Ctrl+N] 新建对话", id="new-chat-btn", variant="primary")
+                yield ListView(id="chat-list")
+
+            # 右侧主体：聊天记录 + 输入框
+            with Vertical(id="chat-area"):
+                yield VerticalScroll(id="log")
+                with Horizontal(id="input-row"):
+                    yield Input(placeholder="输入消息，回车发送…", id="prompt")
+                    yield Button("发送", id="send", variant="primary")
+
         yield Footer()
 
     def on_mount(self) -> None:
@@ -82,18 +94,54 @@ class AgentTUI(App):
         # 启动消费者 worker
         self.consume_events()
 
+        # 初始化左侧对话列表（模拟数据）
+        self._init_chat_list()
+
+    def _init_chat_list(self) -> None:
+        chat_list = self.query_one("#chat-list", ListView)
+
+        # 模拟数据：将来这里换成真实的对话 ID 和标题
+        mock_chats = [
+            {"id": "chat_001", "title": "Osaka - 介绍大阪..."},
+            {"id": "chat_002", "title": "Tokyo - 东京旅游攻略..."},
+            {"id": "chat_003", "title": "Python - 回文检测代码..."},
+            {"id": "chat_004", "title": "Untitled Chat"}
+        ]
+
+        for chat in mock_chats:
+            # 将真实数据挂载到 ListItem 的原生属性上
+            item = ListItem(Label(chat["title"]))
+            item.chat_id = chat["id"]  # 动态添加属性
+            item.chat_title = chat["title"]
+            chat_list.append(item)
+
+    def on_list_view_selected(self, event: ListView.Selected) -> None:
+        """当用户点击左侧对话列表时触发"""
+        item = event.item
+
+        # 直接从 item 上获取我们刚才挂载的数据（IDE 可能会对动态属性标黄，可以忽略或使用 getattr）
+        chat_id = getattr(item, "chat_id", "unknown")
+        chat_title = getattr(item, "chat_title", "未知对话")
+
+        self.notify(f"已切换到对话: {chat_title} (ID: {chat_id})", title="切换对话")
+
+        # TODO: 真正的切换逻辑
+        # 比如：清空日志 -> 根据 chat_id 从后端拉取历史记录 -> 重新渲染
+        # log = self.query_one("#log", VerticalScroll)
+        # self.run_worker(log.remove_children())
+
     # ------------------------ 事件消费（核心） ------------------------ #
     @work
     async def consume_events(self) -> None:
         """常驻 worker：从队列里取事件并渲染。"""
         while True:
-            event = await self.events.get()
+            event = await self.bus.get()
             try:
                 await self._dispatch(event)
             except Exception as exc:  # noqa: BLE001
                 self.log.error(f"dispatch error: {exc!r}")
             finally:
-                self.events.task_done()
+                self.bus.task_done()
 
     async def _dispatch(self, ev: AgentEvent) -> None:
         log = self.query_one("#log", VerticalScroll)
@@ -187,10 +235,12 @@ class AgentTUI(App):
         await self._finalize_text()
 
     async def _on_text_delta(self, text: str, log: VerticalScroll) -> None:
+        self._stream_buf.append(text)
+        if _is_non_text(text):
+            return  # 纯 \n\r\t / 零宽 / 控制字符：不 mount、不刷新
         if self._stream_md is None:
             self._stream_md = Markdown("", classes="agent-msg")
             await log.mount(self._stream_md)
-        self._stream_buf.append(text)
         self._stream_dirty = True
 
     async def _on_text_end(self, log: VerticalScroll) -> None:

@@ -2,7 +2,7 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Literal
 
-from src.ai.types import Message, AssistantMessageEvent
+from src.ai.types import Message, AssistantMessageEvent, ToolResultMessage
 
 type AgentMessage = Message
 
@@ -42,6 +42,7 @@ class AgentEndEvent:
     type: Literal[AgentEventType.AGENT_END] = field(
         default=AgentEventType.AGENT_END, init=False
     )
+    messages: list[AgentMessage]
 
 
 @dataclass(frozen=True)
@@ -56,6 +57,8 @@ class AgentTurnEndEvent:
     type: Literal[AgentEventType.TURN_END] = field(
         default=AgentEventType.TURN_END, init=False
     )
+    message: AgentMessage
+    tool_results: list[ToolResultMessage]
 
 
 @dataclass(frozen=True)
@@ -63,6 +66,7 @@ class AgentMessageStartEvent:
     type: Literal[AgentEventType.MESSAGE_START] = field(
         default=AgentEventType.MESSAGE_START, init=False
     )
+    message: AgentMessage
 
 
 @dataclass(frozen=True)
@@ -79,6 +83,7 @@ class AgentMessageEndEvent:
     type: Literal[AgentEventType.MESSAGE_END] = field(
         default=AgentEventType.MESSAGE_END, init=False
     )
+    message: AgentMessage
 
 
 @dataclass(frozen=True)
