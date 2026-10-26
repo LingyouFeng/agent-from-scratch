@@ -2,67 +2,57 @@
 """一个用 Textual 写的 Agent TUI。
 
 架构：
-    生产端  MockAgent ──put──> asyncio.Queue[AgentEvent]
-    消费端  AgentTUI.consume_events()（Textual async worker）──> 更新 Widget
+    每个会话一个 SessionRuntime（独立 EventBus + Agent + 落盘），
+    AgentTUI 为每个 runtime 启动一个消费 worker，
+    事件始终路由到该会话自己的 ConversationView。
 
-UI 层完全不关心 Agent 内部逻辑，只认队列里的事件；
-换成真实 Agent 时，只要保持「往队列里 put AgentEvent」这一契约即可。
+    切换会话 = 显示/隐藏对应的 ConversationView，
+    因此多个会话可以同时流式输出，切换时都能看到各自的实时效果。
+
+组件划分：
+    Sidebar           左侧会话列表（sidebar.py）
+    ChatArea          右侧聊天区容器 + 共享输入行（chat_area.py）
+    ConversationView  每会话一份的消息视图（chat_area.py）
+    AgentTUI          组合层：管理 SessionRuntime、事件路由、会话切换（本文件）
 """
 
 from __future__ import annotations
 
-import datetime
 from pathlib import Path
 
-from rich.markup import escape
 from rich.text import Text
 from textual import work
 from textual.app import App, ComposeResult
-from textual.containers import VerticalScroll, Horizontal, Vertical
-from textual.widgets import Collapsible, Button, ListView, ListItem, Label
-from textual.widgets import Footer, Header, Input, Markdown, Static
+from textual.containers import Horizontal
+from textual.widgets import Button, Footer, Header, Input, Static
 
-from src.agent.types import (
-    AgentEvent,
-    AgentEventType,
-    AgentToolExecutionEndEvent,
-    AgentToolExecutionStartEvent, AgentStatusBarUpdateEvent
-)
-from src.ai.types import AssistantMessageEventType
-from src.harness.agent import Agent
-from src.harness.event_bus import EventBus
-from src.util.text_util import _is_non_text
+from src.agent.types import AgentEvent, AgentEventType, AgentStatusBarUpdateEvent
+from src.harness.session.runtime import SessionRuntime, load_context_messages
+from src.harness.session.session_manager import SessionManager
+from src.tui.chat_area import ChatArea, ConversationView
+from src.tui.sidebar import Sidebar
 
 
 class AgentTUI(App):
-    CSS_PATH = Path(__file__).with_name("styles.tcss")
+    # Textual 的 CSS_PATH 只在 App/Screen 上生效，组件样式文件统一在这里加载
+    CSS_PATH = [
+        Path(__file__).with_name("styles.tcss"),      # App 主布局 + 状态栏
+        Path(__file__).with_name("sidebar.tcss"),     # Sidebar 组件
+        Path(__file__).with_name("chat_area.tcss"),   # ChatArea / ConversationView 组件
+    ]
 
     BINDINGS = [
         ("ctrl+l", "clear_log", "清空日志"),
         ("ctrl+n", "focus_input", "聚焦输入"),
     ]
 
-    def __init__(self, agent: Agent, bus: EventBus) -> None:
+    def __init__(self, session_manager: SessionManager) -> None:
         super().__init__()
-        self.bus = bus
-        self.agent = agent
+        self.session_manager = session_manager
 
-        # 轮次计数
-        self._turn = 0
-
-        # 流式正文状态
-        self._stream_md: Markdown | None = None
-        self._stream_buf: list[str] = []
-        self._stream_dirty = False
-
-        # 流式 thinking 状态
-        self._thinking_static: Static | None = None
-        self._thinking_collapsible: Collapsible | None = None
-        self._thinking_buf: list[str] = []
-        self._thinking_dirty = False
-
-        # 用于追踪正在运行的工具体，key 为工具调用 ID 或工具名
-        self._running_tools: dict[str, Collapsible] = {}
+        # 会话运行时与视图，key 均为 session_id
+        self._runtimes: dict[str, SessionRuntime] = {}
+        self._active_id: str | None = None
 
     # ---------------------------- 布局 ---------------------------- #
     def compose(self) -> ComposeResult:
@@ -71,335 +61,151 @@ class AgentTUI(App):
         # 主布局：左右分栏
         with Horizontal(id="main-layout"):
             # 左侧边栏：对话列表
-            with Vertical(id="sidebar"):
-                yield Button("[Ctrl+N] 新建对话", id="new-chat-btn", variant="primary")
-                yield ListView(id="chat-list")
-
-            # 右侧主体：聊天记录 + 输入框
-            with Vertical(id="chat-area"):
-                yield VerticalScroll(id="log")
-                with Horizontal(id="input-row"):
-                    yield Input(placeholder="输入消息，回车发送…", id="prompt")
-                    yield Button("发送", id="send", variant="primary")
+            yield Sidebar(self.session_manager, id="sidebar")
+            # 右侧主体：会话视图容器 + 输入框
+            yield ChatArea(id="chat-area")
 
         yield Footer()
 
-    def on_mount(self) -> None:
+    async def on_mount(self) -> None:
         self.title = "Agent TUI"
         self.sub_title = "idle"
         self.query_one(Input).focus()
+        # 没有选择任何会话 → 创建新会话
+        await self._new_session()
 
-        # 20fps 节流刷新 Markdown / Static，避免每个 token 都重排
-        self.set_interval(1 / 20, self._flush_stream)
-        # 启动消费者 worker
-        self.consume_events()
+    @property
+    def chat_area(self) -> ChatArea:
+        return self.query_one(ChatArea)
 
-        # 初始化左侧对话列表（模拟数据）
-        self._init_chat_list()
+    @property
+    def sidebar(self) -> Sidebar:
+        return self.query_one(Sidebar)
 
-    def _init_chat_list(self) -> None:
-        chat_list = self.query_one("#chat-list", ListView)
+    @property
+    def _active_runtime(self) -> SessionRuntime | None:
+        if self._active_id is None:
+            return None
+        return self._runtimes.get(self._active_id)
 
-        # 模拟数据：将来这里换成真实的对话 ID 和标题
-        mock_chats = [
-            {"id": "chat_001", "title": "Osaka - 介绍大阪..."},
-            {"id": "chat_002", "title": "Tokyo - 东京旅游攻略..."},
-            {"id": "chat_003", "title": "Python - 回文检测代码..."},
-            {"id": "chat_004", "title": "Untitled Chat"}
-        ]
+    @property
+    def _active_view(self) -> ConversationView | None:
+        if self._active_id is None:
+            return None
+        return self.chat_area.get_view(self._active_id)
 
-        for chat in mock_chats:
-            # 将真实数据挂载到 ListItem 的原生属性上
-            item = ListItem(Label(chat["title"]))
-            item.chat_id = chat["id"]  # 动态添加属性
-            item.chat_title = chat["title"]
-            chat_list.append(item)
+    # ------------------------ 会话管理 ------------------------ #
+    async def _new_session(self) -> None:
+        """创建并激活一个新会话。"""
+        session_id = self.session_manager.new_session()
+        self._runtimes[session_id] = SessionRuntime(session_id, self.session_manager)
+        self.consume_events(self._runtimes[session_id])
 
-    def on_list_view_selected(self, event: ListView.Selected) -> None:
-        """当用户点击左侧对话列表时触发"""
-        item = event.item
+        self.sidebar.refresh_sessions()
+        await self._activate(session_id)
+        self.notify("已创建新对话", title="新建对话")
 
-        # 直接从 item 上获取我们刚才挂载的数据（IDE 可能会对动态属性标黄，可以忽略或使用 getattr）
-        chat_id = getattr(item, "chat_id", "unknown")
-        chat_title = getattr(item, "chat_title", "未知对话")
+    async def _activate(self, session_id: str, history=None) -> None:
+        """激活会话：创建视图（首次）、加载历史、切换显示、同步输入区状态。"""
+        chat = self.chat_area
+        view = chat.get_view(session_id)
+        if view is None:
+            view = await chat.create_view(session_id)
+            if history is None:
+                history = load_context_messages(self.session_manager, session_id)
+            if history:
+                await view.render_history(history)
 
-        self.notify(f"已切换到对话: {chat_title} (ID: {chat_id})", title="切换对话")
+        await chat.show_view(session_id)
+        self._active_id = session_id
 
-        # TODO: 真正的切换逻辑
-        # 比如：清空日志 -> 根据 chat_id 从后端拉取历史记录 -> 重新渲染
-        # log = self.query_one("#log", VerticalScroll)
-        # self.run_worker(log.remove_children())
+        # 输入区状态跟随当前会话的 agent
+        runtime = self._runtimes[session_id]
+        busy = runtime.agent.busy
+        inp = chat.input
+        inp.disabled = busy
+        if not busy:
+            inp.focus()
+        self._set_running(busy)
+        self.sub_title = "working…" if busy else "idle"
 
-    # ------------------------ 事件消费（核心） ------------------------ #
+        self.sidebar.highlight_session(session_id)
+
+    async def on_sidebar_session_selected(self, event: Sidebar.SessionSelected) -> None:
+        """点击左侧会话列表：使用旧会话（加载历史上下文或恢复流式视图）。"""
+        session_id = event.session_id
+        if session_id not in self._runtimes:
+            # 首次打开旧会话：加载历史消息作为 Agent 上下文并重建渲染
+            messages = load_context_messages(self.session_manager, session_id)
+            self._runtimes[session_id] = SessionRuntime(
+                session_id, self.session_manager, messages
+            )
+            self.consume_events(self._runtimes[session_id])
+            await self._activate(session_id, history=messages)
+        else:
+            # 已打开过（含正在流式输出的会话）：直接切换视图
+            await self._activate(session_id)
+
+    # ------------------------ 事件消费（每会话一个 worker） ------------------------ #
     @work
-    async def consume_events(self) -> None:
-        """常驻 worker：从队列里取事件并渲染。"""
+    async def consume_events(self, runtime: SessionRuntime) -> None:
+        """常驻 worker：从该会话的总线取事件并渲染。"""
         while True:
-            event = await self.bus.get()
+            event = await runtime.bus.get()
             try:
-                await self._dispatch(event)
+                await self._dispatch(event, runtime)
             except Exception as exc:  # noqa: BLE001
                 self.log.error(f"dispatch error: {exc!r}")
             finally:
-                self.bus.task_done()
+                runtime.bus.task_done()
 
-    async def _dispatch(self, ev: AgentEvent) -> None:
-        log = self.query_one("#log", VerticalScroll)
+    async def _dispatch(self, ev: AgentEvent, runtime: SessionRuntime) -> None:
+        view = self.chat_area.get_view(runtime.session_id)
+        is_active = runtime.session_id == self._active_id
 
         match ev.type:
             case AgentEventType.AGENT_START:
-                await self._on_agent_start()
+                if is_active:
+                    self.sub_title = "working…"
 
             case AgentEventType.TURN_START:
                 pass
-                # await self._on_turn_start()
 
             case AgentEventType.TURN_END:
                 pass
-                # await self._on_turn_end()
 
             case AgentEventType.MESSAGE_UPDATE:
-                match ev.assistant_message_event.type:
-                    case AssistantMessageEventType.THINK_START:
-                        await self._on_thinking_start(log)
-                    case AssistantMessageEventType.THINK_DELTA:
-                        await self._on_thinking_delta(ev.assistant_message_event.delta, log)
-                    case AssistantMessageEventType.THINK_END:
-                        await self._on_thinking_end(log)
-                    case AssistantMessageEventType.TEXT_START:
-                        await self._on_text_start(log)
-                    case AssistantMessageEventType.TEXT_DELTA:
-                        await self._on_text_delta(ev.assistant_message_event.delta, log)
-                    case AssistantMessageEventType.TEXT_END:
-                        await self._on_text_end(log)
-                    case AssistantMessageEventType.TOOLCALL_START:
-                        pass
-                    case AssistantMessageEventType.TOOLCALL_DELTA:
-                        pass
-                    case AssistantMessageEventType.TOOLCALL_END:
-                        pass
+                if view is not None:
+                    await view.handle_message_event(ev)
 
             case AgentEventType.TOOL_EXECUTION_START:
-                await self._on_tool_execution_start(ev)
+                if view is not None:
+                    await view.handle_tool_execution_start(ev)
 
             case AgentEventType.TOOL_EXECUTION_END:
-                await self._on_tool_execution_end(ev)
+                if view is not None:
+                    await view.handle_tool_execution_end(ev)
 
             case AgentEventType.AGENT_END:
-                await self._on_agent_end()
+                if view is not None:
+                    await view.finalize_stream()  # 把最后一批 token 刷出去
+                if is_active:
+                    inp = self.chat_area.input
+                    inp.disabled = False
+                    inp.focus()
+                    self._set_running(False)
+                    self.sub_title = "idle"
+                # 会话标题/预览可能已更新（首条消息设标题）
+                self.sidebar.refresh_sessions()
+                if self._active_id is not None:
+                    self.sidebar.highlight_session(self._active_id)
 
             case AgentEventType.STATUS_BAR_UPDATE:
                 pass
                 # await self._on_status_bar_update(ev)
 
-        log.scroll_end(animate=False)
-
-    # ---------------------------- 流式 thinking ---------------------------- #
-    async def _on_thinking_start(self, log: VerticalScroll) -> None:
-        # 兜底：上一段 thinking 若没正常结束先收尾
-        await self._finalize_thinking()
-
-    async def _on_thinking_delta(self, text: str, log: VerticalScroll) -> None:
-        if self._thinking_static is None:
-            self._thinking_static = Static("", classes="thinking")
-            # 默认展开、标题「思考中」
-            self._thinking_collapsible = Collapsible(
-                self._thinking_static,
-                title="[dim]正在思考[/dim]",
-                collapsed=False,
-                classes="thinking-collapsible",
-            )
-            await log.mount(self._thinking_collapsible)
-        self._thinking_buf.append(text)
-        self._thinking_dirty = True
-
-    async def _on_thinking_end(self, log: VerticalScroll) -> None:
-        await self._finalize_thinking()
-
-    async def _finalize_thinking(self) -> None:
-        # 把最后一批 token 刷出去
-        if self._thinking_static is not None and self._thinking_buf:
-            self._thinking_static.update(escape("".join(self._thinking_buf)))
-        # 标题改成「思考完成」并自动折叠
-        if self._thinking_collapsible is not None:
-            self._thinking_collapsible.title = "[dim]思考完成[/dim]"
-            self._thinking_collapsible.collapsed = True
-        # 重置：下一次 THINK_DELTA 会创建新的 Collapsible 区域
-        self._thinking_static = None
-        self._thinking_collapsible = None
-        self._thinking_buf.clear()
-        self._thinking_dirty = False
-
-    # ---------------------------- 流式正文 ---------------------------- #
-    async def _on_text_start(self, log: VerticalScroll) -> None:
-        await self._finalize_text()
-
-    async def _on_text_delta(self, text: str, log: VerticalScroll) -> None:
-        self._stream_buf.append(text)
-        if _is_non_text(text):
-            return  # 纯 \n\r\t / 零宽 / 控制字符：不 mount、不刷新
-        if self._stream_md is None:
-            self._stream_md = Markdown("", classes="agent-msg")
-            await log.mount(self._stream_md)
-        self._stream_dirty = True
-
-    async def _on_text_end(self, log: VerticalScroll) -> None:
-        await self._finalize_text()
-
-    async def _finalize_text(self) -> None:
-        # 把最后一批 token 刷出去
-        if self._stream_md is not None and self._stream_buf:
-            await self._stream_md.update("".join(self._stream_buf))
-        # 重置：下一次 TEXT_DELTA 会创建新的 Markdown 区域
-        self._stream_md = None
-        self._stream_buf.clear()
-        self._stream_dirty = False
-
-    # ---------------------------- 节流刷新 ---------------------------- #
-    def _flush_stream(self) -> None:
-        """interval 回调：同时刷新正文和 thinking。"""
-        if self._stream_dirty and self._stream_md is not None:
-            self._stream_dirty = False
-            self._stream_md.update("".join(self._stream_buf))
-
-        if self._thinking_dirty and self._thinking_static is not None:
-            self._thinking_dirty = False
-            self._thinking_static.update(escape(''.join(self._thinking_buf)))
-
-    def _reset_stream(self) -> None:
-        # 正文
-        self._stream_md = None
-        self._stream_buf.clear()
-        self._stream_dirty = False
-
-        # thinking
-        self._thinking_static = None
-        self._thinking_collapsible = None
-        self._thinking_buf.clear()
-        self._thinking_dirty = False
-
-    async def _on_agent_start(self) -> None:
-        self._turn = 0
-        self._set_running(True)  # 可选兜底
-        self.sub_title = "working…"
-
-    async def _on_agent_end(self) -> None:
-        self._flush_stream()  # 把最后一批 token 刷出去
-        self._reset_stream()
-
-        inp = self.query_one(Input)
-        inp.disabled = False
-        inp.focus()
-
-        self._set_running(False)  # ← 新增：空闲后恢复按钮
-        self.sub_title = "idle"
-
-    # ---------------------------- 轮次 ---------------------------- #
-    async def _on_turn_start(self) -> None:
-        # 把上一轮残留的 token 刷出去（正常事件顺序下已 flush 过，这里是兜底）
-        self._flush_stream()
-        # 新一轮使用新的流式 widget
-        self._reset_stream()
-
-        self._turn += 1
-        self.sub_title = f"working… (turn {self._turn})"
-
-        log = self.query_one("#log", VerticalScroll)
-        await log.mount(
-            Static(
-                f"[dim]── 第 {self._turn} 轮 ──[/dim]",
-                classes="turn-divider",
-            )
-        )
-        log.scroll_end(animate=False)
-
-    async def _on_turn_end(self) -> None:
-        # 刷出本轮最后一批 token
-        self._flush_stream()
-
-        log = self.query_one("#log", VerticalScroll)
-        await log.mount(
-            Static(
-                f"[dim]── 第 {self._turn} 轮结束 ──[/dim]",
-                classes="turn-divider",
-            )
-        )
-        log.scroll_end(animate=False)
-
-    # ---------------------------- 工具执行 ---------------------------- #
-    async def _on_tool_execution_start(self, ev: AgentToolExecutionStartEvent) -> None:
-        log = self.query_one("#log", VerticalScroll)
-
-        title = f"[yellow]🔧[/] [bold cyan]{escape(ev.tool_name)}[/]"
-        if ev.arguments:
-            title += f"  [dim]{escape(ev.arguments)}[/dim]"
-
-        args_text = escape(ev.arguments) if ev.arguments else "[dim]（无参数）[/dim]"
-
-        # 使用 Vertical 容器，上方放参数，下方留给结果
-        body_container = Vertical(
-            Static(args_text, classes="tool-args-body"),
-            classes="tool-body-container"
-        )
-
-        collapsible = Collapsible(
-            body_container,
-            title=title,
-            collapsed=False,  # 运行中默认展开，方便用户看参数
-            classes="tool-exec tool-exec-running",
-        )
-
-        # 假设事件里有 tool_call_id，如果没有则退回使用 tool_name
-        # 如果你的 Event 结构里没有 tool_call_id，建议加上，以防并发同名工具出错
-        call_id = getattr(ev, "tool_call_id", ev.tool_name)
-        self._running_tools[call_id] = collapsible
-
-        await log.mount(collapsible)
-        log.scroll_end(animate=False)
-
-    async def _on_tool_execution_end(self, ev: AgentToolExecutionEndEvent) -> None:
-        log = self.query_one("#log", VerticalScroll)
-
-        call_id = getattr(ev, "tool_call_id", ev.tool_name)
-        collapsible = self._running_tools.pop(call_id, None)
-
-        ok = ev.is_success
-        icon = "✔" if ok else "✘"
-        color = "green" if ok else "red"
-        cls = "tool-exec-ok" if ok else "tool-exec-fail"
-
-        if collapsible is not None:
-            # 1. 更新标题
-            collapsible.title = f"[bold {color}]{icon}[/] [bold]{escape(ev.tool_name)}[/]"
-
-            # 2. 更新外框样式（移除运行中，加上成功/失败）
-            collapsible.remove_class("tool-exec-running")
-            collapsible.add_class(cls)
-
-            # 3. 将输出结果塞进刚才预留的容器里
-            body_text = escape(ev.tool_result) if ev.tool_result else "[dim]（无输出）[/dim]"
-            result_static = Static(body_text, classes="tool-result-body")
-
-            container = collapsible.query_one(".tool-body-container", Vertical)
-            await container.mount(result_static)
-
-            # 4. 执行完后自动折叠
-            collapsible.collapsed = True
-        else:
-            # 兜底逻辑：如果没有找到对应的 start 事件（比如历史记录加载）
-            body_text = escape(ev.tool_result) if ev.tool_result else "[dim]（无输出）[/dim]"
-            body = Static(body_text, classes="tool-result-body")
-            title = f"[bold {color}]{icon}[/] [bold]{escape(ev.tool_name)}[/]"
-            await log.mount(
-                Collapsible(
-                    body,
-                    title=title,
-                    collapsed=True,
-                    classes=f"tool-exec {cls}",
-                )
-            )
-
-        log.scroll_end(animate=False)
+        if view is not None and is_active:
+            view.scroll_end(animate=False)
 
     # ---------------------------- 状态栏 ---------------------------- #
     async def _on_status_bar_update(self, ev: AgentStatusBarUpdateEvent) -> None:
@@ -436,16 +242,25 @@ class AgentTUI(App):
         await self._submit_prompt(event.value)
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
+        # 新建对话：即使当前会话在流式输出也可以新建（各会话独立运行）
+        if event.button.id == "new-chat-btn":
+            await self._new_session()
+            return
+
         if event.button.id != "send":
             return
 
+        runtime = self._active_runtime
+        if runtime is None:
+            return
+
         # 运行中 → 点击执行停止
-        if self.agent.busy:
+        if runtime.agent.busy:
             # 先切到「停止中…」并禁用，防止重复点击
             event.button.label = "停止中…"
             event.button.disabled = True
             try:
-                self.agent.stop()  # 注意：类里属性名是 self.agent
+                runtime.agent.stop()
             except Exception as exc:  # noqa: BLE001
                 self.log.error(f"stop agent failed: {exc!r}")
                 # 停止失败时恢复成运行态
@@ -453,44 +268,33 @@ class AgentTUI(App):
             return
 
         # 空闲 → 走和回车一致的提交逻辑
-        await self._submit_prompt(self.query_one(Input).value)
+        await self._submit_prompt(self.chat_area.input.value)
 
     async def _submit_prompt(self, text: str) -> None:
-        """回车与按钮共用的发送逻辑。"""
-        text = (text or "").strip()
-        if not text or self.agent.busy:
+        """回车与按钮共用的发送逻辑：发给当前激活的会话。"""
+        runtime = self._active_runtime
+        view = self._active_view
+        if runtime is None or view is None:
             return
 
-        inp = self.query_one(Input)
+        text = (text or "").strip()
+        if not text or runtime.agent.busy:
+            return
+
+        inp = self.chat_area.input
         inp.value = ""
         inp.disabled = True
 
-        self._reset_stream()
+        view.reset_stream()
         self._set_running(True)  # 按钮切到「停止」
 
-        log = self.query_one("#log", VerticalScroll)
+        await view.mount_user_message(text)
 
-        # 获取当前时间
-        time_str = datetime.datetime.now().strftime("%H:%M")
-
-        # 构建气泡和底部信息
-        bubble = Static(escape(text), classes="user-msg-bubble")
-        meta = Static(f"You · {time_str}", classes="user-msg-meta")
-
-        # 用 Vertical 把它们上下包起来
-        wrapper = Vertical(bubble, meta, classes="user-msg-wrapper")
-
-        # 用 Horizontal 靠右对齐
-        row = Horizontal(wrapper, classes="user-msg-row")
-
-        await log.mount(row)
-        log.scroll_end(animate=False)
-
-        self.run_agent(text)
+        self.run_agent(runtime, text)
 
     def _set_running(self, running: bool) -> None:
-        """根据 agent 状态切换发送按钮的外观/可用性。"""
-        btn = self.query_one(f"#send", Button)
+        """根据当前会话 agent 状态切换发送按钮的外观/可用性。"""
+        btn = self.chat_area.send_button
         btn.disabled = False
         if running:
             btn.label = "停止"
@@ -500,14 +304,14 @@ class AgentTUI(App):
             btn.variant = "primary"
 
     @work(group="agent")
-    async def run_agent(self, prompt: str) -> None:
-        await self.agent.run(prompt)
+    async def run_agent(self, runtime: SessionRuntime, prompt: str) -> None:
+        await runtime.agent.run(prompt)
 
     # ---------------------------- 命令 ---------------------------- #
     async def action_clear_log(self) -> None:
-        log = self.query_one("#log", VerticalScroll)
-        await log.remove_children()
-        self._reset_stream()
+        view = self._active_view
+        if view is not None:
+            await view.clear()
 
     def action_focus_input(self) -> None:
         self.query_one(Input).focus()

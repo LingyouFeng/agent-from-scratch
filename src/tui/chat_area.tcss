@@ -1,0 +1,171 @@
+/* ====== 右侧聊天区域 ====== */
+#chat-area {
+    width: 1fr;
+    height: 1fr;
+}
+
+/* 会话视图容器：同时挂多个 ConversationView，靠 display 切换 */
+#views {
+    height: 1fr;
+}
+
+/* ====== 会话消息视图（每个会话一份） ====== */
+ConversationView {
+    height: 1fr;
+    padding: 1;
+    scrollbar-gutter: stable;
+    background: $background; /* 显式指定深色底，确保间隙是纯正的暗色 */
+
+    /* 美化滚动条 */
+    scrollbar-size-vertical: 1;
+    scrollbar-background: $surface;
+    scrollbar-color: $surface-lighten-1;
+    scrollbar-color-hover: $surface-lighten-2;
+    scrollbar-color-active: $primary;
+}
+
+/* 核心：统一给日志里的直接子元素下发 1 格的顶部间距 */
+ConversationView > * {
+    margin-right: 3;
+    margin-top: 1;
+}
+
+/* 确保日志里的第一个元素没有顶部间距，贴紧顶部 */
+ConversationView > :first-child {
+    margin-top: 0;
+}
+
+/* ====== 输入区容器 ====== */
+#input-row {
+    width: 100%;
+    height: auto;
+    dock: bottom;
+    padding: 1;
+    margin-top: 1;
+    background: $surface;
+    align: center middle;
+}
+
+/* ====== 文本框 ====== */
+#prompt {
+    width: 1fr;
+    height: 3;
+    margin: 0;
+    border: tall $surface-lighten-2;
+}
+
+#prompt:focus {
+    border: tall $primary;
+}
+
+/* ====== 发送按钮 ====== */
+#send {
+    width: 8;
+    min-width: 8;
+    height: 3;
+    margin: 0 0 0 1;
+    padding: 0;
+    content-align: center middle;
+}
+
+/* ====== 用户消息行 ====== */
+.user-msg-row {
+    width: 100%;
+    height: auto;
+    align: right middle;
+    margin: 0;
+    padding: 0;
+}
+
+.user-msg-wrapper {
+    width: auto;
+    height: auto;
+    max-width: 85%;
+    align: right middle;
+    margin: 0;
+    padding: 0;
+}
+
+.user-msg-bubble {
+    width: auto;
+    height: auto;
+    background: $primary-darken-2;
+    color: $text;
+    padding: 1 2;
+    margin: 0;
+}
+
+.user-msg-meta {
+    width: auto; /* 修复文字短时变成两行的问题 */
+    height: auto;
+    color: $text-muted;
+    text-style: italic;
+    margin: 0;
+    padding: 0;
+}
+
+/* ====== 正文 ====== */
+.agent-msg {
+    margin: 0;
+    padding: 0;
+    background: transparent;
+}
+
+/* ====== 思考过程折叠框 ====== */
+Collapsible.thinking-collapsible {
+    border: round $surface-lighten-3;
+    background: $surface-lighten-1; /* 略微提亮底色，增强卡片感 */
+}
+
+.thinking {
+    color: $text-muted;
+    text-style: italic;
+    background: transparent; /* 关键：内部透明，消除色差 */
+}
+
+/* ====== 工具执行 ====== */
+Collapsible.tool-exec,
+Collapsible.tool-exec-ok,
+Collapsible.tool-exec-fail {
+    height: auto;
+    background: $surface-lighten-1; /* 统一提亮底色 */
+}
+
+Collapsible.tool-exec {
+    padding: 0 1;
+    border-left: thick $primary;
+}
+
+Collapsible.tool-exec-running {
+    border-left: thick $warning;
+}
+
+Collapsible.tool-exec-ok {
+    border: round $success;
+}
+
+Collapsible.tool-exec-fail {
+    border: round $error;
+}
+
+/* 运行中参数和结束结果的内部样式 */
+.tool-args-body,
+.tool-result-body {
+    padding: 0 1;
+    background: transparent; /* 关键：内部透明 */
+    color: $text;
+    margin: 0;
+}
+
+/* ====== 其他 ====== */
+.error {
+    color: $error;
+    padding-left: 1;
+    margin: 0;
+}
+
+.turn-divider {
+    color: $text-muted;
+    padding: 0 1;
+    margin: 0;
+}

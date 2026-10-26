@@ -1,0 +1,57 @@
+/* ====== 左侧边栏 ====== */
+#sidebar {
+    width: 30; /* 固定宽度，可按需调整 */
+    height: 1fr;
+    background: $surface;
+    border-right: solid $panel;
+    padding: 1;
+}
+
+#new-chat-btn {
+    width: 100%;
+    margin-bottom: 1;
+}
+
+#chat-list {
+    height: 1fr;
+    background: transparent;
+}
+
+/* 列表项本身 */
+#chat-list ListItem {
+    height: auto;
+    padding: 0; /* 移除默认 padding */
+    margin-bottom: 1;
+    border-left: thick transparent; /* 预留左侧边框高亮 */
+}
+
+/* 选中或悬停时的视觉反馈 */
+#chat-list ListItem:hover {
+    background: $surface-lighten-1;
+}
+
+#chat-list ListItem.-highlight {
+    background: $primary-darken-2;
+    border-left: thick $primary;
+}
+
+/* 内部文本容器 */
+.chat-item-content {
+    padding: 1 1; /* 为整个内容区提供上下左右的呼吸感 */
+    height: auto;
+}
+
+/* 标题样式 */
+.chat-title {
+    text-style: bold;
+    color: $text;
+    height: auto;
+}
+
+/* 预览样式 */
+.chat-preview {
+    color: $text-muted;
+    height: auto;
+    text-overflow: ellipsis; /* 太长时显示省略号 */
+    overflow: hidden;
+}
