@@ -87,16 +87,17 @@ class AgentLoop:
                 else:
                     await self._emit(AgentMessageUpdateEvent(message, event))
 
-                if event.type == AssistantMessageEventType.TOOLCALL_END:
+                if event.type == AssistantMessageEventType.TOOLCALL_DELTA:
                     has_tool_call = True
-                    content = event.toolcall
-                    tool_calls.append(content)
+                    toolcall = event.partial.content[event.content_index]
+                    tool_calls.append(toolcall)
 
                     await self._emit(
                         AgentToolExecutionStartEvent(
-                            tc_id=content.id,
-                            tool_name=content.name,
-                            arguments=str(content.arguments),
+                            tc_id=toolcall.id,
+                            tool_name=toolcall.name,
+                            arguments=str(toolcall.arguments),
+                            action_note=toolcall.action_note,
                         )
                     )
                     is_success, tool_result = self._tool_executor.execute(
@@ -104,17 +105,17 @@ class AgentLoop:
                     )
                     await self._emit(
                         AgentToolExecutionEndEvent(
-                            tc_id=content.id,
-                            tool_name=content.name,
-                            arguments=str(content.arguments),
+                            tc_id=toolcall.id,
+                            tool_name=toolcall.name,
+                            arguments=str(toolcall.arguments),
                             tool_result=tool_result,
                             is_success=is_success,
                         )
                     )
 
                     tool_results.append(ToolResultMessage(
-                        tool_call_id=content.id,
-                        tool_name=content.name,
+                        tool_call_id=toolcall.id,
+                        tool_name=toolcall.name,
                         content=[TextContent(text=tool_result)],
                         timestamp=get_timestamp_ms(),
                         is_success=is_success

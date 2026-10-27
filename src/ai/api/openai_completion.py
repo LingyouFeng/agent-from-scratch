@@ -9,7 +9,8 @@ from typing import AsyncIterator
 from openai import APIConnectionError, APITimeoutError, AsyncOpenAI, RateLimitError
 from openai.types.chat import (
     ChatCompletionFunctionToolParam,
-    ChatCompletionMessageParam, ChatCompletionSystemMessageParam,
+    ChatCompletionMessageParam,
+    ChatCompletionSystemMessageParam,
 )
 
 from src.ai.model import Model, StreamOptions
@@ -39,7 +40,7 @@ from src.util.time_util import get_timestamp_ms
 
 
 async def stream(
-        model: Model, context: Context, options: StreamOptions | None = None
+    model: Model, context: Context, options: StreamOptions | None = None
 ) -> AsyncIterator[tuple[AssistantMessage, AssistantMessageEvent]]:
     provider = get_provider_by_id(model.provider)
     if provider is None:
@@ -145,7 +146,11 @@ async def stream(
                         # 发送 toolcall_start 事件
                         if toolcall_index.get(tc.index, None) is None:
                             toolcall_index[tc.index] = len(content)
-                            toolcall_buffer[tc.index] = {"id": tc.id, "name": tc.function.name, "args": ""}
+                            toolcall_buffer[tc.index] = {
+                                "id": tc.id,
+                                "name": tc.function.name,
+                                "args": "",
+                            }
 
                             content.append(toolcall_buffer[tc.index])
                             yield assistant_message, AssistantMessageToolCallStartEvent(
@@ -158,11 +163,14 @@ async def stream(
                         # 尝试去解析工具调用，这里只解析完整的json，不支持增量解析
                         raw_json = toolcall_buffer[tc.index]["args"]
                         try:
-                            arguments = json.loads(raw_json)
+                            arguments, action_note = split_action_note(
+                                json.loads(raw_json)
+                            )
                             content[toolcall_index[tc.index]] = ToolCall(
                                 id=toolcall_buffer[tc.index]["id"],
                                 name=toolcall_buffer[tc.index]["name"],
                                 arguments=arguments,
+                                action_note=action_note,
                             )
                             yield assistant_message, AssistantMessageToolCallDeltaEvent(
                                 content_index=toolcall_index[tc.index],
@@ -250,14 +258,18 @@ async def stream(
 
             for idx, tc in enumerate(message.tool_calls or []):
                 try:
-                    arguments = json.loads(tc.function.arguments or "{}")
+                    arguments, action_note = split_action_note(
+                        json.loads(tc.function.arguments or "{}")
+                    )
                 except json.JSONDecodeError as e:
                     raise ValueError(
                         f"Tool {tc.function.name} arguments JSON 解析失败"
                     ) from e
                 # 发送 toolcall_start 事件
                 toolcall_index[idx] = len(content)
-                content.append(ToolCall(id="", name="", arguments={}))
+                content.append(
+                    ToolCall(id="", name="", arguments={}, action_note=action_note)
+                )
                 yield assistant_message, AssistantMessageToolCallStartEvent(
                     content_index=toolcall_index[idx],
                     partial=assistant_message,
@@ -266,7 +278,8 @@ async def stream(
                 content[toolcall_index[idx]] = ToolCall(
                     id=tc.id,
                     name=tc.function.name,
-                    arguments=arguments
+                    arguments=arguments,
+                    action_note=action_note,
                 )
                 yield assistant_message, AssistantMessageToolCallDeltaEvent(
                     content_index=toolcall_index[idx],
@@ -350,3 +363,13 @@ def convert_message(msg: Message) -> ChatCompletionMessageParam | None:
             "content": "\n".join(content_parts),
         }
     return None
+
+
+def split_action_note(arguments: dict[str, any]) -> tuple[dict[str, any], str]:
+    """把参数 action_note（模型填写的执行描述）从真实工具参数中分离。
+
+    返回 (真实参数, 执行描述)。执行描述仅用于 UI 展示，永远不该传给工具。
+    """
+    action = arguments.get(ACTION_NOTE_KEY, "")
+    real = {k: v for k, v in arguments.items() if k != ACTION_NOTE_KEY}
+    return real, action if isinstance(action, str) else ""

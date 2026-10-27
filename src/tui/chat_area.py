@@ -127,6 +127,7 @@ class ConversationView(VerticalScroll):
                                 tc_id=item.id,
                                 tool_name=item.name,
                                 arguments=str(item.arguments),
+                                action_note=item.action_note,
                             )
                         )
 
@@ -192,13 +193,20 @@ class ConversationView(VerticalScroll):
     async def _on_think_end(self) -> None:
         await self._finalize_thinking()
 
+    def _thinking_title(self, label: str) -> str:
+        """标题 = 状态前缀 + 思考内容预览（预览需转义，避免被当 markup 解析）。"""
+        preview = " ".join("".join(self._thinking_buf).split())
+        if not preview:
+            return f"[dim]{label}[/dim]"
+        return f"[dim]{label}[/dim] {escape(preview)}"
+
     async def _finalize_thinking(self) -> None:
         # 把最后一批 token 刷出去
         if self._thinking_static is not None and self._thinking_buf:
             self._thinking_static.update(escape("".join(self._thinking_buf)))
-        # 标题改成「思考完成」并自动折叠
+        # 标题改成「思考完成 + 内容预览」并自动折叠
         if self._thinking_collapsible is not None:
-            self._thinking_collapsible.title = "[dim]思考完成[/dim]"
+            self._thinking_collapsible.title = self._thinking_title("思考完成")
             self._thinking_collapsible.collapsed = True
         # 重置：下一次 THINK_DELTA 会创建新的 Collapsible 区域
         self._thinking_static = None
@@ -260,10 +268,19 @@ class ConversationView(VerticalScroll):
         self.reset_stream()
 
     # ---------------------------- 工具执行 ---------------------------- #
+    @staticmethod
+    def _tool_title(ev, running: bool) -> str:
+        """折叠框标题：优先显示模型填写的 action，回退到工具名。
+
+        ev 只需提供 tool_name / action 两个属性。
+        """
+        label = ev.action_note.strip() or ev.tool_name
+        if running:
+            return f"[yellow]🔧[/] [bold cyan]{escape(label)}[/] [dim]({escape(ev.tool_name)})[/]"
+        return f"[bold cyan]{escape(label)}[/] [dim]({escape(ev.tool_name)})[/]"
+
     async def _on_tool_execution_start(self, ev: AgentToolExecutionStartEvent) -> None:
-        title = f"[yellow]🔧[/] [bold cyan]{escape(ev.tool_name)}[/]"
-        if ev.arguments:
-            title += f"  [dim]{escape(ev.arguments)}[/dim]"
+        title = self._tool_title(ev, running=True)
 
         args_text = escape(ev.arguments) if ev.arguments else "[dim]（无参数）[/dim]"
 
@@ -284,6 +301,8 @@ class ConversationView(VerticalScroll):
 
         call_id = getattr(ev, "tc_id", ev.tool_name)
         self._running_tools[call_id] = collapsible
+        # 记住 action_note，end 时更新标题继续使用
+        collapsible.action_note = ev.action_note or ""
 
         await self.mount(collapsible)
         self.scroll_end(animate=False)
@@ -292,17 +311,16 @@ class ConversationView(VerticalScroll):
         call_id = getattr(ev, "tc_id", ev.tool_name)
         collapsible = self._running_tools.pop(call_id, None)
 
-        # 历史重建时没有成败标记（is_success=None），用中性样式
-        if ev.is_success is None:
-            icon, color, cls = "🔧", "cyan", "tool-exec"
-        else:
-            icon = "✔" if ev.is_success else "✘"
-            color = "green" if ev.is_success else "red"
-            cls = "tool-exec-ok" if ev.is_success else "tool-exec-fail"
+        icon = "✔" if ev.is_success else "✘"
+        color = "green" if ev.is_success else "red"
+        cls = "tool-exec-ok" if ev.is_success else "tool-exec-fail"
 
         if collapsible is not None:
-            # 1. 更新标题
-            collapsible.title = f"[bold {color}]{icon}[/]  [bold]{escape(ev.tool_name)}[/]"
+            # 1. 更新标题：沿用 start 时的 action 描述
+            label = getattr(collapsible, "action_note", "") or ev.tool_name
+            collapsible.title = (
+                f"[bold {color}]{icon}[/] [dim]{escape(ev.tool_name)}[/] · [bold]{escape(label)}[/]"
+            )
 
             # 2. 更新外框样式（移除运行中，加上成功/失败）
             collapsible.remove_class("tool-exec-running")

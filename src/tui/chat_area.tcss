@@ -117,6 +117,15 @@ Collapsible.thinking-collapsible {
     background: transparent;
 }
 
+/* 标题：单行显示，超出的部分用省略号截断 */
+Collapsible.thinking-collapsible > CollapsibleTitle {
+    width: 1fr;
+    height: 1;
+    text-wrap: nowrap;        /* 关键：强制单行，禁止换行 */
+    text-overflow: ellipsis;  /* 溢出部分显示为省略号 */
+    overflow: hidden;         /* 可选：确保隐藏其他溢出内容 */
+}
+
 .thinking {
     color: $text-muted;
     text-style: italic;
