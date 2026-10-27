@@ -14,7 +14,7 @@ from openai.types.chat import (
 )
 
 from src.ai.model import Model, StreamOptions
-from src.ai.provider.all import get_provider_by_id
+from src.ai.provider.registry import default_registry
 from src.ai.types import (
     AssistantMessage,
     AssistantMessageDoneEvent,
@@ -42,9 +42,15 @@ from src.util.time_util import get_timestamp_ms
 async def stream(
     model: Model, context: Context, options: StreamOptions | None = None
 ) -> AsyncIterator[tuple[AssistantMessage, AssistantMessageEvent]]:
-    provider = get_provider_by_id(model.provider)
+    provider = default_registry.get_provider_by_id(model.provider)
     if provider is None:
         raise ValueError(f"No built-in provider {provider} with model {model.id}")
+
+    if provider.api_key is None:
+        raise ValueError(f"Provider {provider.id} with model {model.id} has not configure api key")
+    
+    if provider.base_url is None:
+        raise ValueError(f"Provider {provider.id} with model {model.id} has not configure base url")
 
     client = AsyncOpenAI(api_key=provider.api_key, base_url=provider.base_url)
 
@@ -79,7 +85,7 @@ async def stream(
         stream_enabled = options.stream if options else False
         thinking_level = options.thinking_level if options else "none"
         response = await client.chat.completions.create(
-            model=model.name,
+            model=model.id,
             messages=api_messages,
             stream=stream_enabled,
             stream_options={"include_usage": True},
@@ -370,6 +376,6 @@ def split_action_note(arguments: dict[str, any]) -> tuple[dict[str, any], str]:
 
     返回 (真实参数, 执行描述)。执行描述仅用于 UI 展示，永远不该传给工具。
     """
-    action = arguments.get(ACTION_NOTE_KEY, "")
-    real = {k: v for k, v in arguments.items() if k != ACTION_NOTE_KEY}
+    action = arguments.get("action_note", "")
+    real = {k: v for k, v in arguments.items() if k != "action_note"}
     return real, action if isinstance(action, str) else ""

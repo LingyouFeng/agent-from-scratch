@@ -1,9 +1,11 @@
 """Base class for all tools."""
 
 from abc import ABC, abstractmethod
-from typing import Any, ClassVar, Generic, TypeVar
+from typing import ClassVar, Generic, TypeVar
 
 from pydantic import BaseModel
+
+from src.agent.constant import Constants
 
 ACTION_NOTE_KEY = "action_note"
 ArgsT = TypeVar("ArgsT", bound=BaseModel)
@@ -38,8 +40,8 @@ class BaseTool(ABC, Generic[ArgsT]):
             props[ACTION_NOTE_KEY] = {
                 "type": "string",
                 "description": (
-                    "Describe what you are doing in this step "
-                    "(e.g., 'Listing files'). Keep it short and user-friendly."
+                    "Describe what you are doing in this step (e.g., 'Listing files'). " +
+                    f"Keep it short and user-friendly. Use {Constants.LANGUAGE}."
                 ),
             }
         return schema

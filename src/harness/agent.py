@@ -7,8 +7,7 @@ from src.agent.runtime.tool_executor import ToolExecutor
 from src.agent.tools.permission import PermissionPolicy, WorkspaceScope
 from src.agent.tools.registry import ToolRegistry
 from src.agent.types import AgentEvent
-from src.ai.model import StreamOptions
-from src.ai.provider.all import get_model_by_id
+from src.agent.types import ModelRequestOptions
 from src.ai.types import Context, Message, TextContent, UserMessage
 from src.harness.event_bus import EventBus
 from src.util.time_util import get_timestamp_ms
@@ -18,7 +17,9 @@ SYSTEM_PROMPT = Constants.SYSTEM_PROMPT
 
 
 class Agent:
-    def __init__(self, bus: EventBus, messages: list[Message]) -> None:
+    def __init__(
+        self, bus: EventBus, messages: list[Message], options: ModelRequestOptions
+    ) -> None:
         self.bus = bus
         self._messages = messages
         self.busy = False
@@ -28,12 +29,17 @@ class Agent:
             PermissionPolicy(WorkspaceScope(WD)),
             HookManager(),
         )
-        self._stream_option = StreamOptions()
+        self._model = options.model
+        self._stream_option = options.stream_options
         self._agent_loop = AgentLoop(self._tool_executor, self.emit)
-        self._model = get_model_by_id("cmhi/deepseek-v4.1-flash")
 
         # 当前运行的停止信号
         self._stop_event: asyncio.Event | None = None
+
+    def set_model_request_options(self, options: ModelRequestOptions) -> None:
+        """切换模型请求选项（TUI 模型选择器调用，空闲时生效于下一轮对话）。"""
+        self._model = options.model
+        self._stream_option = options.stream_options
 
     async def emit(self, ev: AgentEvent) -> None:
         if self.bus:
@@ -52,8 +58,12 @@ class Agent:
                 timestamp=get_timestamp_ms(),
             )
             self._messages.append(user_message)
-            context = Context(SYSTEM_PROMPT, self._messages, self._tool_registry.get_all_tools())
-            await self._agent_loop.run_loop(self._model, user_message, context, self._stream_option, stop_event)
+            context = Context(
+                SYSTEM_PROMPT, self._messages, self._tool_registry.get_all_tools()
+            )
+            await self._agent_loop.run_loop(
+                self._model, user_message, context, self._stream_option, stop_event
+            )
 
         finally:
             self.busy = False

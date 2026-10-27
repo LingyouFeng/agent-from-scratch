@@ -12,19 +12,20 @@ ConversationView：一个会话一份，承载全部消息渲染逻辑（流式 
 """
 
 from __future__ import annotations
-
 import datetime
 
 from rich.markup import escape
 from textual.containers import Horizontal, Vertical, VerticalScroll
-from textual.widgets import Button, Collapsible, Input, Markdown, Static
+from textual.widgets import Button, Collapsible, Input, Markdown, Select, Static
 
+from src.agent.constant import Constants
 from src.agent.types import (
     AgentMessage,
     AgentMessageUpdateEvent,
     AgentToolExecutionEndEvent,
     AgentToolExecutionStartEvent,
 )
+from src.ai.provider.registry import default_registry
 from src.ai.types import (
     AssistantMessage,
     AssistantMessageEventType,
@@ -301,8 +302,6 @@ class ConversationView(VerticalScroll):
 
         call_id = getattr(ev, "tc_id", ev.tool_name)
         self._running_tools[call_id] = collapsible
-        # 记住 action_note，end 时更新标题继续使用
-        collapsible.action_note = ev.action_note or ""
 
         await self.mount(collapsible)
         self.scroll_end(animate=False)
@@ -317,7 +316,7 @@ class ConversationView(VerticalScroll):
 
         if collapsible is not None:
             # 1. 更新标题：沿用 start 时的 action 描述
-            label = getattr(collapsible, "action_note", "") or ev.tool_name
+            label = ev.action_note.strip() or ev.tool_name
             collapsible.title = (
                 f"[bold {color}]{icon}[/] [dim]{escape(ev.tool_name)}[/] · [bold]{escape(label)}[/]"
             )
@@ -361,6 +360,13 @@ class ConversationView(VerticalScroll):
         await self.remove_children()
 
 
+def _model_options() -> list[tuple[str, str]]:
+    """模型下拉选项：label 为「供应商 / 模型名」，value 为模型 id。"""
+    return [
+        (f"{model.provider} / {model.name}", model.id)
+        for model in default_registry.get_builtin_models()
+    ]
+
 class ChatArea(Vertical):
     """聊天区域：多个会话视图容器 + 共享输入行。
 
@@ -374,9 +380,23 @@ class ChatArea(Vertical):
     # ---------------------------- 布局 ---------------------------- #
     def compose(self):
         yield Vertical(id="views")
-        with Horizontal(id="input-row"):
-            yield Input(placeholder="输入消息，回车发送…", id="prompt")
-            yield Button("发送", id="send", variant="primary")
+        with Vertical(id="input-area"):
+            # 第一行：输入框 + 发送按钮
+            with Horizontal(id="input-row"):
+                yield Input(placeholder="输入消息，回车发送…", id="prompt")
+                yield Button("发送", id="send", variant="primary")
+            # 第二行：左边 token 用量/上下文，右边模型选择 + 思考强度
+            with Horizontal(id="status-row"):
+                yield Static("Token 消耗: 0", id="token-usage")
+                yield Static("上下文: 0/128k", id="context-tokens")
+                yield Static("", classes="status-spacer")
+                yield Select(
+                    _model_options(),
+                    value=Constants.DEFAULT_MODEL_ID,
+                    id="model-select",
+                    allow_blank=False,
+                )
+                yield Static("思考强度: high", id="thinking-level")
 
     # ---------------------------- 视图管理 ---------------------------- #
     async def create_view(self, session_id: str) -> ConversationView:
@@ -413,10 +433,20 @@ class ChatArea(Vertical):
             self._views[new_id] = view
         return view
 
+    async def remove_view(self, session_id: str) -> None:
+        """移除并卸载某个会话的视图（删除会话时调用）。"""
+        view = self._views.pop(session_id, None)
+        if view is not None:
+            await view.remove()
+
     # ---------------------------- 输入区 ---------------------------- #
     @property
     def input(self) -> Input:
         return self.query_one("#prompt", Input)
+
+    @property
+    def model_select(self) -> Select:
+        return self.query_one("#model-select", Select)
 
     @property
     def send_button(self) -> Button:

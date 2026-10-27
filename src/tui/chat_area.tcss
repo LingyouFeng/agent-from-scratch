@@ -35,15 +35,45 @@ ConversationView > :first-child {
     margin-top: 0;
 }
 
-/* ====== 输入区容器 ====== */
-#input-row {
+/* ====== 输入区容器（输入行 + 状态行） ====== */
+#input-area {
     width: 100%;
     height: auto;
     dock: bottom;
     padding: 1;
     margin-top: 1;
     background: $surface;
+}
+
+#input-row {
+    width: 100%;
+    height: auto;
     align: center middle;
+}
+
+/* ====== 输入栏下方状态行 ====== */
+#status-row {
+    width: 100%;
+    height: auto;
+    margin-top: 1;
+    align: center middle;
+}
+
+/* 左侧 token 信息 / 右侧思考强度：与 Select 等高并垂直居中 */
+#token-usage,
+#context-tokens,
+#thinking-level {
+    width: auto;
+    height: 3;
+    padding: 0 1;
+    content-align: center middle;
+    color: $text-muted;
+}
+
+/* 弹性占位：把右侧内容推到最右 */
+.status-spacer {
+    width: 1fr;
+    height: 3;
 }
 
 /* ====== 文本框 ====== */
@@ -52,6 +82,12 @@ ConversationView > :first-child {
     height: 3;
     margin: 0;
     border: tall $surface-lighten-2;
+}
+
+/* ====== 模型选择器 ====== */
+#model-select {
+    width: 40;
+    margin: 0;
 }
 
 #prompt:focus {

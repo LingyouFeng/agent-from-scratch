@@ -101,7 +101,7 @@ class AgentLoop:
                         )
                     )
                     is_success, tool_result = self._tool_executor.execute(
-                        content.id, content.name, content.arguments
+                        toolcall.id, toolcall.name, toolcall.arguments
                     )
                     await self._emit(
                         AgentToolExecutionEndEvent(
@@ -110,6 +110,7 @@ class AgentLoop:
                             arguments=str(toolcall.arguments),
                             tool_result=tool_result,
                             is_success=is_success,
+                            action_note=toolcall.action_note,
                         )
                     )
 

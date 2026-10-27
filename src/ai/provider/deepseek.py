@@ -13,13 +13,13 @@ def deepseek_provider() -> Provider:
         models=[
             Model(
                 id="cmhi/deepseek-v4-flash",
-                name="cmhi/deepseek-v4-flash",
+                name="deepseek-v4-flash",
                 provider="deepseek",
                 api="openai-completions"
             ),
             Model(
                 id="cmhi/deepseek-v4.1-flash",
-                name="cmhi/deepseek-v4.1-flash",
+                name="deepseek-v4.1-flash",
                 provider="deepseek",
                 api="openai-completions"
             ),

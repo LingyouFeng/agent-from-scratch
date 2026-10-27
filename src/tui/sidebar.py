@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 from textual.message import Message
-from textual.containers import Vertical
+from textual.containers import Horizontal, Vertical
 from textual.widgets import Button, ListItem, ListView, Static
 
 from src.harness.session.session_manager import SessionManager
@@ -25,6 +25,13 @@ class Sidebar(Vertical):
             self.session_id = session_id
             self.title = title
 
+    class SessionDeleteRequested(Message):
+        """用户点击了某个会话的删除按钮。"""
+
+        def __init__(self, session_id: str) -> None:
+            super().__init__()
+            self.session_id = session_id
+
     def __init__(self, session_manager: SessionManager, **kwargs) -> None:
         super().__init__(**kwargs)
         self.session_manager = session_manager
@@ -39,13 +46,16 @@ class Sidebar(Vertical):
 
     # ---------------------------- 会话列表 ---------------------------- #
     def _make_item(self, session_id: str, title: str, preview: str = "") -> ListItem:
-        # 创建一个垂直容器，装标题和预览
+        # 左侧：标题 + 预览
         content = Vertical(
             Static(title, classes="chat-title"),
             Static(preview, classes="chat-preview"),
             classes="chat-item-content",
         )
-        item = ListItem(content)
+        # 右侧：删除按钮（选中/悬浮时才显示，见 sidebar.tcss）
+        delete_btn = Button("✕", variant="error", classes="chat-delete-btn")
+        delete_btn.chat_id = session_id
+        item = ListItem(Horizontal(content, delete_btn, classes="chat-item-row"))
         item.chat_id = session_id
         item.chat_title = title
         return item
@@ -73,3 +83,12 @@ class Sidebar(Vertical):
         chat_title = getattr(event.item, "chat_title", "未知对话")
 
         self.post_message(self.SessionSelected(chat_id, chat_title))
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        """删除按钮：转发为 SessionDeleteRequested 消息，不触发会话切换。"""
+        if "chat-delete-btn" not in event.button.classes:
+            return
+        event.stop()  # 阻止继续冒泡到 App 的按钮处理
+        session_id = getattr(event.button, "chat_id", None)
+        if session_id:
+            self.post_message(self.SessionDeleteRequested(session_id))

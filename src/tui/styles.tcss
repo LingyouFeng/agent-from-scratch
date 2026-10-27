@@ -12,6 +12,14 @@
     border-top: solid $surface-lighten-2;
 }
 
+/* ====== 通知（Toast）：改为右上角弹出 ====== */
+ToastRack {
+    dock: top;          /* 默认 bottom，改到顶部 */
+    align: right top;
+    margin-top: 1;      /* 与默认 margin-bottom: 1 对调 */
+    margin-bottom: 0;
+}
+
 /* 组件样式拆分：
    Sidebar  -> sidebar.tcss
    ChatArea -> chat_area.tcss */

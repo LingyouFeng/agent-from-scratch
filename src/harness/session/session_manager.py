@@ -7,12 +7,14 @@ from pydantic import BaseModel, Field
 from pydantic import TypeAdapter, ValidationError
 from pydantic_core import to_jsonable_python
 
+from src.agent.constant import Constants
 from src.agent.types import AgentMessage
 
 
 class SessionMeta(BaseModel):
     id: str
     title: str = Field(default="untitled")
+    model: str = Field(default=Constants.DEFAULT_MODEL_ID)  # 会话关联的模型 id
     created_at: datetime = Field(default=datetime.now())
     updated_at: datetime = Field(default=datetime.now())
 
@@ -118,6 +120,18 @@ class SessionManager:
         if meta is None or meta.title != "untitled":
             return
         meta.title = title
+        self._session_index.upsert_index(meta)
+
+    def get_index(self, session_id: str) -> SessionMeta | None:
+        """获取会话元数据。"""
+        return self._session_index.get_index(session_id)
+
+    def update_model(self, session_id: str, model_id: str) -> None:
+        """更新会话关联的模型 id。"""
+        meta = self._session_index.get_index(session_id)
+        if meta is None:
+            raise RuntimeError(f"找不到会话{session_id}")
+        meta.model = model_id
         self._session_index.upsert_index(meta)
 
     def delete_sessions(self, session_id: str | None = None) -> None:

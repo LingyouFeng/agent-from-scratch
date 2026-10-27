@@ -2,7 +2,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Literal
 
-from src.ai.types import Message, AssistantMessageEvent, ToolResultMessage
+from src.ai.model import Model, StreamOptions
+from src.ai.types import AssistantMessageEvent, Message, ToolResultMessage
 
 type AgentMessage = Message
 
@@ -118,6 +119,7 @@ class AgentToolExecutionEndEvent:
     arguments: str
     tool_result: str
     is_success: bool
+    action_note: str = field(default="") 
 
 
 @dataclass(frozen=True)
@@ -141,3 +143,9 @@ type AgentEvent = (
         | AgentToolExecutionEndEvent
         | AgentStatusBarUpdateEvent
 )
+
+
+@dataclass(frozen=True)
+class ModelRequestOptions:
+    model: Model
+    stream_options: StreamOptions
