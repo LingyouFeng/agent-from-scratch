@@ -1,0 +1,113 @@
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.0.8",
+  "base_commit_sha": "49949e0e5017b8dbac42a6b4c655666cb2f2df72",
+  "prompts": {},
+  "commit_stats": {
+    "git_diff_added_lines": 116,
+    "git_diff_deleted_lines": 48,
+    "ai_additions": 0,
+    "ai_accepted": 0,
+    "BYMC": 116,
+    "mixed_additions": 0,
+    "BYAC": 0,
+    "BYRC": 0,
+    "per_file": {
+      "README.md": {
+        "BYMC": [
+          "7",
+          "12",
+          "14-16",
+          "18",
+          "30",
+          "32-33"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      },
+      "src/agent/constant.py": {
+        "BYMC": [
+          "8",
+          "10-11"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      },
+      "src/agent/runtime/agent_loop.py": {
+        "BYMC": [
+          "90",
+          "92-93",
+          "97-100",
+          "108-110",
+          "117-118"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      },
+      "src/agent/tools/base.py": {
+        "BYMC": [
+          "4",
+          "8",
+          "14",
+          "30-45"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      },
+      "src/agent/types.py": {
+        "BYMC": [
+          "97"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      },
+      "src/ai/api/openai_completion.py": {
+        "BYMC": [
+          "12-13",
+          "43",
+          "149-153",
+          "166-168",
+          "173",
+          "261-263",
+          "270-272",
+          "281-282",
+          "366-375"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      },
+      "src/ai/types.py": {
+        "BYMC": [
+          "31"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      },
+      "src/tui/chat_area.py": {
+        "BYMC": [
+          "130",
+          "196-202",
+          "207",
+          "209",
+          "271-281",
+          "283",
+          "304-305",
+          "314-316",
+          "319-323"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      },
+      "src/tui/chat_area.tcss": {
+        "BYMC": [
+          "120-128"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      }
+    }
+  },
+  "commit_timestamp": 1793081796,
+  "requirement_id": ""
+}
