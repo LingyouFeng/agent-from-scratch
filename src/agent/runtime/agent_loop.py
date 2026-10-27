@@ -1,4 +1,5 @@
 import asyncio
+import json
 from typing import Awaitable, Callable
 
 from src.agent.constant import Constants
@@ -96,8 +97,7 @@ class AgentLoop:
                         AgentToolExecutionStartEvent(
                             tc_id=toolcall.id,
                             tool_name=toolcall.name,
-                            arguments=str(toolcall.arguments),
-                            action_note=toolcall.action_note,
+                            arguments=json.dumps(toolcall.arguments),
                         )
                     )
                     is_success, tool_result = self._tool_executor.execute(
@@ -107,10 +107,9 @@ class AgentLoop:
                         AgentToolExecutionEndEvent(
                             tc_id=toolcall.id,
                             tool_name=toolcall.name,
-                            arguments=str(toolcall.arguments),
+                            arguments=json.dumps(toolcall.arguments),
                             tool_result=tool_result,
                             is_success=is_success,
-                            action_note=toolcall.action_note,
                         )
                     )
 
@@ -119,7 +118,7 @@ class AgentLoop:
                         tool_name=toolcall.name,
                         content=[TextContent(text=tool_result)],
                         timestamp=get_timestamp_ms(),
-                        is_success=is_success
+                        is_success=is_success,
                     ))
 
                 if event.type == AssistantMessageEventType.DONE:

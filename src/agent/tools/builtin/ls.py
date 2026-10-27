@@ -20,6 +20,9 @@ class LsArgs(BaseModel):
         ge=1,
         description="Maximum number of entries to list. Default 2000.",
     )
+    action_note: str = Field(
+        description="Describe what you are doing in this step. Keep it short and user-friendly."
+    )
 
 
 class LsTool(BaseTool[LsArgs]):

@@ -10,7 +10,6 @@ from src.agent.constant import Constants
 from src.agent.tools.base import BaseTool
 
 
-
 def _load() -> list[dict]:
     if not Constants.TODO_FILE.exists():
         return []
@@ -45,6 +44,9 @@ class TodoArgs(BaseModel):
     status: Literal["pending", "in_progress", "completed"] | None = Field(
         default=None,
         description="New status. Used with 'update'.",
+    )
+    action_note: str = Field(
+        description="Describe what you are doing in this step. Keep it short and user-friendly."
     )
 
 

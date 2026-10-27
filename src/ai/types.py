@@ -28,7 +28,6 @@ class ToolCall:
     id: str
     name: str
     arguments: dict[str, Any]
-    action_note: str = field(default="")
 
 
 @dataclass

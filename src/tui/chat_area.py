@@ -12,7 +12,9 @@ ConversationView：一个会话一份，承载全部消息渲染逻辑（流式 
 """
 
 from __future__ import annotations
+
 import datetime
+import json
 
 from rich.markup import escape
 from textual.containers import Horizontal, Vertical, VerticalScroll
@@ -35,7 +37,7 @@ from src.ai.types import (
     ToolResultMessage,
     UserMessage,
 )
-from src.util.text_util import _is_non_text
+from src.util.text_util import _is_non_text, _safe_body
 
 
 class ConversationView(VerticalScroll):
@@ -103,6 +105,7 @@ class ConversationView(VerticalScroll):
         重放流式渲染函数，保证与流式输出最终效果完全一致。
         """
         await self.clear()
+        toolcall_args: dict[str, str] = {}
 
         for msg in messages:
             if isinstance(msg, UserMessage):
@@ -123,12 +126,12 @@ class ConversationView(VerticalScroll):
                         await self._on_text_end()
                     elif isinstance(item, ToolCall):
                         # 等后续 ToolResultMessage 到来时补充结果并收尾
+                        toolcall_args[item.id] = json.dumps(item.arguments)
                         await self._on_tool_execution_start(
                             AgentToolExecutionStartEvent(
                                 tc_id=item.id,
                                 tool_name=item.name,
-                                arguments=str(item.arguments),
-                                action_note=item.action_note,
+                                arguments=json.dumps(item.arguments),
                             )
                         )
 
@@ -140,7 +143,7 @@ class ConversationView(VerticalScroll):
                     AgentToolExecutionEndEvent(
                         tc_id=msg.tool_call_id,
                         tool_name=msg.tool_name,
-                        arguments="",
+                        arguments=toolcall_args[msg.tool_call_id],
                         tool_result=result,
                         is_success=msg.is_success,
                     )
@@ -275,7 +278,13 @@ class ConversationView(VerticalScroll):
 
         ev 只需提供 tool_name / action 两个属性。
         """
-        label = ev.action_note.strip() or ev.tool_name
+        action_note = ""
+        try:
+            arguments = json.loads(ev.arguments)
+            action_note = arguments["action_note"].strip()
+        except json.JSONDecodeError as e:
+            raise e
+        label = action_note or ev.tool_name
         if running:
             return f"[yellow]🔧[/] [bold cyan]{escape(label)}[/] [dim]({escape(ev.tool_name)})[/]"
         return f"[bold cyan]{escape(label)}[/] [dim]({escape(ev.tool_name)})[/]"
@@ -283,11 +292,11 @@ class ConversationView(VerticalScroll):
     async def _on_tool_execution_start(self, ev: AgentToolExecutionStartEvent) -> None:
         title = self._tool_title(ev, running=True)
 
-        args_text = escape(ev.arguments) if ev.arguments else "[dim]（无参数）[/dim]"
+        args_visual = _safe_body(ev.arguments, empty_hint="（无参数）")
 
         # 使用 Vertical 容器，上方放参数，下方留给结果
         body_container = Vertical(
-            Static(args_text, classes="tool-args-body"),
+            Static(args_visual, classes="tool-args-body"),
             classes="tool-body-container",
         )
 
@@ -314,9 +323,18 @@ class ConversationView(VerticalScroll):
         color = "green" if ev.is_success else "red"
         cls = "tool-exec-ok" if ev.is_success else "tool-exec-fail"
 
+        result_visual = _safe_body(ev.tool_result)
+
         if collapsible is not None:
             # 1. 更新标题：沿用 start 时的 action 描述
-            label = ev.action_note.strip() or ev.tool_name
+            action_note = ""
+            try:
+                arguments = json.loads(ev.arguments)
+                action_note = arguments["action_note"].strip()
+            except json.JSONDecodeError:
+                pass
+            label = action_note or ev.tool_name
+
             collapsible.title = (
                 f"[bold {color}]{icon}[/] [dim]{escape(ev.tool_name)}[/] · [bold]{escape(label)}[/]"
             )
@@ -325,23 +343,18 @@ class ConversationView(VerticalScroll):
             collapsible.remove_class("tool-exec-running")
             collapsible.add_class(cls)
 
-            # 3. 将输出结果塞进刚才预留的容器里
-            body_text = escape(ev.tool_result) if ev.tool_result else "[dim]（无输出）[/dim]"
-            result_static = Static(body_text, classes="tool-result-body")
-
-            container = collapsible.query_one(".tool-body-container", Vertical)
-            await container.mount(result_static)
-
-            # 4. 执行完后自动折叠
-            collapsible.collapsed = True
+            try:
+                container = collapsible.query_one(".tool-body-container", Vertical)
+                await container.mount(Static(result_visual, classes="tool-result-body"))
+                collapsible.collapsed = True
+            except Exception:
+                # 视图被 clear / remove 时忽略
+                pass
         else:
-            # 兜底逻辑：如果没有找到对应的 start 事件（比如历史记录加载）
-            body_text = escape(ev.tool_result) if ev.tool_result else "[dim]（无输出）[/dim]"
-            body = Static(body_text, classes="tool-result-body")
             title = f"[bold {color}]{icon}[/] [bold]{escape(ev.tool_name)}[/]"
             await self.mount(
                 Collapsible(
-                    body,
+                    Static(result_visual, classes="tool-result-body"),
                     title=title,
                     collapsed=True,
                     classes=f"tool-exec {cls}",

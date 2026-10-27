@@ -95,7 +95,6 @@ class AgentToolExecutionStartEvent:
     tc_id: str
     tool_name: str
     arguments: str
-    action_note: str = field(default="")  # 模型填写的本次执行描述，用于 UI 展示
 
 
 @dataclass(frozen=True)
@@ -119,7 +118,6 @@ class AgentToolExecutionEndEvent:
     arguments: str
     tool_result: str
     is_success: bool
-    action_note: str = field(default="") 
 
 
 @dataclass(frozen=True)

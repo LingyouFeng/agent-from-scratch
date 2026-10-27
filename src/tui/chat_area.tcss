@@ -64,7 +64,7 @@ ConversationView > :first-child {
 #context-tokens,
 #thinking-level {
     width: auto;
-    height: 3;
+    height: 1;
     padding: 0 1;
     content-align: center middle;
     color: $text-muted;
@@ -73,7 +73,7 @@ ConversationView > :first-child {
 /* 弹性占位：把右侧内容推到最右 */
 .status-spacer {
     width: 1fr;
-    height: 3;
+    height: 1;
 }
 
 /* ====== 文本框 ====== */
@@ -86,8 +86,20 @@ ConversationView > :first-child {
 
 /* ====== 模型选择器 ====== */
 #model-select {
-    width: 40;
-    margin: 0;
+    width: 35;
+    height: 1;                  /* 高度设为 1，视觉上最紧凑且不拥挤 */
+    border: none !important;    /* 强制清除最外层边框 */
+    padding: 0;
+    background: $surface;
+}
+
+/* 穿透清除内部 SelectCurrent 组件的边框和多余高度 */
+#model-select > SelectCurrent {
+    border: none !important;
+    padding: 0 1;               /* 左右留 1 格，上下为 0 */
+    height: 1fr;                /* 撑满父容器 */
+    background: $surface;
+    content-align: left middle; /* 确保文字垂直居中 */
 }
 
 #prompt:focus {

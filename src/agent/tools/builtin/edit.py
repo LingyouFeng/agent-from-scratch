@@ -23,6 +23,9 @@ class EditFileArgs(BaseModel):
         default=False,
         description="Replace all occurrences instead of requiring a unique match",
     )
+    action_note: str = Field(
+        description="Describe what you are doing in this step. Keep it short and user-friendly."
+    )
 
 
 class EditFileTool(BaseTool[EditFileArgs]):

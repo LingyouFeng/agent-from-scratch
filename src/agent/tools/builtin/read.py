@@ -21,6 +21,10 @@ class ReadFileArgs(BaseModel):
         ge=1,
         description="Max lines to read. Default 2000.",
     )
+    action_note: str = Field(
+        description="Describe what you are doing in this step. Keep it short and user-friendly."
+    )
+
 
 class ReadFileTool(BaseTool[ReadFileArgs]):
     name: ClassVar[str] = "read_file"
@@ -48,7 +52,7 @@ class ReadFileTool(BaseTool[ReadFileArgs]):
         total = len(lines)
 
         start = args.offset - 1
-        chunk = lines[start : start + args.limit]
+        chunk = lines[start: start + args.limit]
 
         numbered = [
             f"{start + i + 1}\t{line}"

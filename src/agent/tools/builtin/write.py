@@ -13,6 +13,9 @@ class WriteFileArgs(BaseModel):
 
     file_path: str = Field(description="Path for the file")
     content: str = Field(description="Full file content to write")
+    action_note: str = Field(
+        description="Describe what you are doing in this step. Keep it short and user-friendly."
+    )
 
 
 class WriteFileTool(BaseTool[WriteFileArgs]):

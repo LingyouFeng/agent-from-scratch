@@ -1,4 +1,3 @@
-
 """Execute shell commands."""
 
 import subprocess
@@ -27,9 +26,12 @@ class BashArgs(BaseModel):
         description="Maximum execution time in seconds"
     )
     max_output: int = Field(
-        default=20000,
+        default=2000,
         ge=1,
         description="Maximum number of characters returned"
+    )
+    action_note: str = Field(
+        description="Describe what you are doing in this step. Keep it short and user-friendly."
     )
 
 
@@ -95,8 +97,8 @@ class BashTool(BaseTool[BashArgs]):
 
         if len(output) > args.max_output:
             output = (
-                output[:args.max_output]
-                + "\n... (output truncated)"
+                    output[:args.max_output]
+                    + "\n... (output truncated)"
             )
 
         return output
