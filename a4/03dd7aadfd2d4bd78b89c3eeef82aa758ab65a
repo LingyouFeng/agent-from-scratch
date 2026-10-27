@@ -1,0 +1,190 @@
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.0.8",
+  "base_commit_sha": "a403dd7aadfd2d4bd78b89c3eeef82aa758ab65a",
+  "prompts": {},
+  "commit_stats": {
+    "git_diff_added_lines": 408,
+    "git_diff_deleted_lines": 90,
+    "ai_additions": 0,
+    "ai_accepted": 0,
+    "BYMC": 383,
+    "mixed_additions": 0,
+    "BYAC": 0,
+    "BYRC": 0,
+    "per_file": {
+      "src/agent/constant.py": {
+        "BYMC": [
+          "6-7",
+          "10-14"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      },
+      "src/agent/runtime/agent_loop.py": {
+        "BYMC": [
+          "104",
+          "113"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      },
+      "src/agent/tools/base.py": {
+        "BYMC": [
+          "4",
+          "8",
+          "43-44"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      },
+      "src/agent/types.py": {
+        "BYMC": [
+          "5-6",
+          "122",
+          "146-151"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      },
+      "src/ai/api/openai_completion.py": {
+        "BYMC": [
+          "17",
+          "45",
+          "49-53",
+          "88",
+          "379-380"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      },
+      "src/ai/provider/deepseek.py": {
+        "BYMC": [
+          "16",
+          "22"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      },
+      "src/ai/provider/doubao.py": {
+        "BYMC": [
+          "1-33"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      },
+      "src/ai/provider/registry.py": {
+        "BYMC": [
+          "1-45"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      },
+      "src/harness/agent.py": {
+        "BYMC": [
+          "10",
+          "20-22",
+          "32-33",
+          "39-42",
+          "61-66"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      },
+      "src/harness/session/runtime.py": {
+        "BYMC": [
+          "9",
+          "29-31",
+          "33-37",
+          "47",
+          "53-55"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      },
+      "src/harness/session/session_manager.py": {
+        "BYMC": [
+          "10",
+          "17",
+          "125-134"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      },
+      "src/tui/chat_area.py": {
+        "BYMC": [
+          "19",
+          "21",
+          "28",
+          "319",
+          "363-369",
+          "383-399",
+          "436-441",
+          "447-449"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      },
+      "src/tui/chat_area.tcss": {
+        "BYMC": [
+          "38-39",
+          "46-50",
+          "52-58",
+          "62-76",
+          "87-90"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      },
+      "src/tui/cli.py": {
+        "BYMC": [
+          "26",
+          "28-36",
+          "45",
+          "49-51",
+          "67-71",
+          "117-119",
+          "121-127",
+          "129-130",
+          "152-163",
+          "183-187",
+          "195-228",
+          "237-261",
+          "361"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      },
+      "src/tui/sidebar.py": {
+        "BYMC": [
+          "11",
+          "28-34",
+          "49",
+          "55-58",
+          "86-94"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      },
+      "src/tui/sidebar.tcss": {
+        "BYMC": [
+          "38-44",
+          "47",
+          "52-65"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      },
+      "src/tui/styles.tcss": {
+        "BYMC": [
+          "15-22"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      }
+    }
+  },
+  "commit_timestamp": 1793095320,
+  "requirement_id": ""
+}
