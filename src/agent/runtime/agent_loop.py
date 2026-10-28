@@ -2,10 +2,9 @@ import asyncio
 import json
 from typing import Awaitable, Callable
 
-from src.agent.constant import Constants
-from src.agent.runtime.tool_executor import ToolExecutor
-from src.agent.status_bar import StatusBar
-from src.agent.types import (
+from agent.constant import Constants
+from agent.status_bar import StatusBar
+from agent.types import (
     AgentEndEvent,
     AgentEvent,
     AgentMessage,
@@ -18,11 +17,10 @@ from src.agent.types import (
     AgentTurnEndEvent,
     AgentTurnStartEvent,
 )
-from src.ai.api.all import get_api_by_api
-from src.ai.model import Model
-from src.ai.model import StreamOptions
-from src.ai.types import AssistantMessageEventType
-from src.ai.types import (
+from ai.api.all import get_api_by_api
+from ai.model import Model
+from ai.model import StreamOptions
+from ai.types import (
     AssistantMessage,
     Context,
     TextContent,
@@ -30,7 +28,9 @@ from src.ai.types import (
     ToolResultMessage,
     UserMessage,
 )
-from src.util.time_util import get_timestamp_ms
+from ai.types import AssistantMessageEventType
+from harness.tools.executor import ToolExecutor
+from util.time_util import get_timestamp_ms
 
 
 class AgentLoop:

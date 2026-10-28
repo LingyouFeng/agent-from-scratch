@@ -1,13 +1,12 @@
 """Todo list management with persistent storage."""
 
 import json
-from pathlib import Path
 from typing import ClassVar, Literal
 
 from pydantic import BaseModel, Field
 
-from src.agent.constant import Constants
-from src.agent.tools.base import BaseTool
+from agent.constant import Constants
+from harness.tools.base import BaseTool
 
 
 def _load() -> list[dict]:

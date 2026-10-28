@@ -1,7 +1,7 @@
 from datetime import datetime
 import json
 
-from src.agent.constant import Constants
+from agent.constant import Constants
 
 
 class StatusBar:

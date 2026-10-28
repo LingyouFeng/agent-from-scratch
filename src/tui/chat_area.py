@@ -20,15 +20,15 @@ from rich.markup import escape
 from textual.containers import Horizontal, Vertical, VerticalScroll
 from textual.widgets import Button, Collapsible, Input, Markdown, Select, Static
 
-from src.agent.constant import Constants
-from src.agent.types import (
+from agent.constant import Constants
+from agent.types import (
     AgentMessage,
     AgentMessageUpdateEvent,
     AgentToolExecutionEndEvent,
     AgentToolExecutionStartEvent,
 )
-from src.ai.provider.registry import default_registry
-from src.ai.types import (
+from ai.provider.registry import default_registry
+from ai.types import (
     AssistantMessage,
     AssistantMessageEventType,
     TextContent,
@@ -37,7 +37,7 @@ from src.ai.types import (
     ToolResultMessage,
     UserMessage,
 )
-from src.util.text_util import _is_non_text, _safe_body
+from util.text_util import _is_non_text, _safe_body
 
 
 class ConversationView(VerticalScroll):

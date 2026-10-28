@@ -2,7 +2,7 @@
 import asyncio
 from typing import Awaitable, Callable
 
-from src.agent.types import AgentEvent
+from agent.types import AgentEvent
 
 Subscriber = Callable[[AgentEvent], Awaitable[None]]
 

@@ -1,5 +1,4 @@
 import glob
-import json
 import re
 from abc import abstractmethod, ABC
 from dataclasses import dataclass
@@ -255,7 +254,7 @@ class PermissionPolicy:
 PATH_TOOLS = frozenset(WorkspaceScope.PATH_ARGUMENTS)
 READ_PATH_TOOLS = frozenset({"read_file", "glob", "ls"})
 WRITE_PATH_TOOLS = frozenset({"write_file", "edit_file"})
-SESSION_TOOLS = frozenset({"todo"})
+SESSION_TOOLS = frozenset({"todo", "load_skill"})
 HARD_DENY_PATTERNS = (
     re.compile(r"\bsudo\b", re.IGNORECASE),
     re.compile(r"\brm\s+-(?=[^\s]*r)(?=[^\s]*f)[^\s]*", re.IGNORECASE),

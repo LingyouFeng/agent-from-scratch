@@ -1,24 +1,32 @@
 import asyncio
+import platform
 
-from src.agent.constant import Constants
-from src.agent.hooks.manager import HookManager
-from src.agent.runtime.agent_loop import AgentLoop
-from src.agent.runtime.tool_executor import ToolExecutor
-from src.agent.tools.permission import PermissionPolicy, WorkspaceScope
-from src.agent.tools.registry import ToolRegistry
-from src.agent.types import AgentEvent
-from src.agent.types import ModelRequestOptions
-from src.ai.types import Context, Message, TextContent, UserMessage
-from src.harness.event_bus import EventBus
-from src.util.time_util import get_timestamp_ms
+from agent.constant import Constants
+from agent.hooks.manager import HookManager
+from agent.runtime.agent_loop import AgentLoop
+from agent.types import AgentEvent
+from agent.types import ModelRequestOptions
+from ai.types import Context, Message, TextContent, UserMessage
+from harness.event_bus import EventBus
+from harness.skills import Skills
+from harness.tools.executor import ToolExecutor
+from harness.tools.permission import PermissionPolicy, WorkspaceScope
+from harness.tools.registry import ToolRegistry
+from util.time_util import get_timestamp_ms
 
-WD = Constants.WORKDIR
-SYSTEM_PROMPT = Constants.SYSTEM_PROMPT
+WORKDIR = Constants.WORKDIR
+SKILLS = Skills(WORKDIR).load_skills()
+
+SYSTEM_PROMPT = (
+    f"You are a general agent at {WORKDIR}. System: {platform.uname().system}. "
+    f"Complete the task you were given, then return a concise summary in {Constants.LANGUAGE}."
+    f"Skills available:\n{SKILLS}\n"
+)
 
 
 class Agent:
     def __init__(
-        self, bus: EventBus, messages: list[Message], options: ModelRequestOptions
+            self, bus: EventBus, messages: list[Message], options: ModelRequestOptions
     ) -> None:
         self.bus = bus
         self._messages = messages
@@ -26,7 +34,7 @@ class Agent:
         self._tool_registry = ToolRegistry()
         self._tool_executor = ToolExecutor(
             self._tool_registry,
-            PermissionPolicy(WorkspaceScope(WD)),
+            PermissionPolicy(WorkspaceScope(WORKDIR)),
             HookManager(),
         )
         self._model = options.model

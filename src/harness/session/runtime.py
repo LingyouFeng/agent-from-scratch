@@ -6,12 +6,12 @@
 
 from __future__ import annotations
 
-from src.agent.types import ModelRequestOptions
-from src.ai.types import Message, TextContent, UserMessage
-from src.harness.agent import Agent
-from src.harness.event_bus import EventBus
-from src.harness.session.session import Session
-from src.harness.session.session_manager import SessionManager
+from agent.types import ModelRequestOptions
+from ai.types import Message, TextContent, UserMessage
+from harness.agent import Agent
+from harness.event_bus import EventBus
+from harness.session.session import Session
+from harness.session.session_manager import SessionManager
 
 
 def _is_status_message(msg: Message) -> bool:

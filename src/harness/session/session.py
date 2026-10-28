@@ -1,11 +1,11 @@
-from src.agent.constant import Constants
-from src.agent.types import AgentEvent, AgentEventType, AgentMessage
-from src.ai.api.all import get_api_by_api
-from src.ai.model import Model, StreamOptions
-from src.ai.provider.registry import default_registry
-from src.ai.types import Context
-from src.harness.event_bus import EventBus
-from src.harness.session.session_manager import SessionManager
+from agent.constant import Constants
+from agent.types import AgentEvent, AgentEventType, AgentMessage
+from ai.api.all import get_api_by_api
+from ai.model import Model, StreamOptions
+from ai.provider.registry import default_registry
+from ai.types import Context
+from harness.event_bus import EventBus
+from harness.session.session_manager import SessionManager
 
 
 SESSION_TITLE_SYSTEM_PROMPT = f"""

@@ -1,7 +1,9 @@
 import os
 
-from src.ai.model import Model, Provider
 from dotenv import load_dotenv
+
+from ai.model import Model, Provider
+
 
 def doubao_provider() -> Provider:
     load_dotenv()

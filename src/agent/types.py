@@ -2,8 +2,8 @@ from dataclasses import dataclass, field
 from enum import Enum
 from typing import Literal
 
-from src.ai.model import Model, StreamOptions
-from src.ai.types import AssistantMessageEvent, Message, ToolResultMessage
+from ai.model import Model, StreamOptions
+from ai.types import AssistantMessageEvent, Message, ToolResultMessage
 
 type AgentMessage = Message
 

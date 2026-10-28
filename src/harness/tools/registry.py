@@ -2,15 +2,16 @@
 
 import json
 
-from src.ai.types import Tool
-from .base import BaseTool
-from .builtin.bash import BashTool
-from .builtin.edit import EditFileTool
-from .builtin.glob import GlobTool
-from .builtin.ls import LsTool
-from .builtin.read import ReadFileTool
-from .builtin.write import WriteFileTool
-from .builtin.todo import TodoTool
+from ai.types import Tool
+from harness.tools.base import BaseTool
+from harness.tools.builtin.bash import BashTool
+from harness.tools.builtin.edit import EditFileTool
+from harness.tools.builtin.glob import GlobTool
+from harness.tools.builtin.load_skill import LoadSkillTool
+from harness.tools.builtin.ls import LsTool
+from harness.tools.builtin.read import ReadFileTool
+from harness.tools.builtin.todo import TodoTool
+from harness.tools.builtin.write import WriteFileTool
 
 
 class ToolRegistry:
@@ -23,6 +24,7 @@ class ToolRegistry:
             BashTool(),
             LsTool(),
             TodoTool(),
+            LoadSkillTool(),
         ]
         self._tools: dict[str, BaseTool] = {}
         self.register_all(self._builtin_tools)

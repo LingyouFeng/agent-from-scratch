@@ -7,8 +7,8 @@ from pydantic import BaseModel, Field
 from pydantic import TypeAdapter, ValidationError
 from pydantic_core import to_jsonable_python
 
-from src.agent.constant import Constants
-from src.agent.types import AgentMessage
+from agent.constant import Constants
+from agent.types import AgentMessage
 
 
 class SessionMeta(BaseModel):

@@ -13,9 +13,9 @@ from openai.types.chat import (
     ChatCompletionSystemMessageParam,
 )
 
-from src.ai.model import Model, StreamOptions
-from src.ai.provider.registry import default_registry
-from src.ai.types import (
+from ai.model import Model, StreamOptions
+from ai.provider.registry import default_registry
+from ai.types import (
     AssistantMessage,
     AssistantMessageDoneEvent,
     AssistantMessageEvent,
@@ -35,8 +35,8 @@ from src.ai.types import (
     ThinkingContent,
     ToolCall,
 )
-from src.ai.types import AssistantMessageErrorEvent
-from src.util.time_util import get_timestamp_ms
+from ai.types import AssistantMessageErrorEvent
+from util.time_util import get_timestamp_ms
 
 
 class OpenAICompletionAPI:

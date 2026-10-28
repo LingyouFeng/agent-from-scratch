@@ -1,4 +1,4 @@
-from src.ai.api.openai_completion import OpenAICompletionAPI
+from ai.api.openai_completion import OpenAICompletionAPI
 
 _API_MAP: dict[str, OpenAICompletionAPI] = {
     "openai-completions": OpenAICompletionAPI(),

@@ -1,8 +1,8 @@
 from __future__ import annotations
 
-from src.ai.model import Model, Provider, ProviderId
-from src.ai.provider.deepseek import deepseek_provider
-from src.ai.provider.doubao import doubao_provider
+from ai.model import Model, Provider, ProviderId
+from ai.provider.deepseek import deepseek_provider
+from ai.provider.doubao import doubao_provider
 
 
 class ProviderRegistry:

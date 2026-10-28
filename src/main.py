@@ -1,13 +1,13 @@
 import asyncio
 
-from src.ai.model import StreamOptions
-from src.ai.provider.registry import default_registry
-from src.agent.constant import Constants
-from src.agent.types import ModelRequestOptions
-from src.harness.agent import Agent
-from src.harness.event_bus import EventBus
-from src.harness.session.session_manager import SessionManager
-from src.tui.cli import AgentTUI
+from ai.model import StreamOptions
+from ai.provider.registry import default_registry
+from agent.constant import Constants
+from agent.types import ModelRequestOptions
+from harness.agent import Agent
+from harness.event_bus import EventBus
+from harness.session.session_manager import SessionManager
+from tui.cli import AgentTUI
 
 
 class App:

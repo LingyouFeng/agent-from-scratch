@@ -7,11 +7,11 @@
 
 from __future__ import annotations
 
-from textual.message import Message
 from textual.containers import Horizontal, Vertical
+from textual.message import Message
 from textual.widgets import Button, ListItem, ListView, Static
 
-from src.harness.session.session_manager import SessionManager
+from harness.session.session_manager import SessionManager
 
 
 class Sidebar(Vertical):

@@ -17,27 +17,26 @@
 """
 
 from __future__ import annotations
+
 from pathlib import Path
 
-from rich.text import Text
 from textual import work
 from textual.app import App, ComposeResult
 from textual.containers import Horizontal
-from textual.widgets import Button, Footer, Header, Input, Select, Static
+from textual.widgets import Button, Footer, Header, Input, Select
 
-from src.agent.constant import Constants
-from src.agent.types import (
+from agent.constant import Constants
+from agent.types import (
     AgentEvent,
     AgentEventType,
     ModelRequestOptions,
 )
-from src.ai.model import Model, StreamOptions
-from src.ai.provider.registry import default_registry
-from src.harness.session.runtime import SessionRuntime, load_context_messages
-from src.harness.session.session_manager import SessionManager
-from src.tui.chat_area import ChatArea, ConversationView
-from src.tui.sidebar import Sidebar
-
+from ai.model import Model, StreamOptions
+from ai.provider.registry import default_registry
+from harness.session.runtime import SessionRuntime, load_context_messages
+from harness.session.session_manager import SessionManager
+from tui.chat_area import ChatArea, ConversationView
+from tui.sidebar import Sidebar
 
 _DRAFT_SESSION_ID = "__draft__"
 
