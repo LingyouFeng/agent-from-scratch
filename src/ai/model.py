@@ -36,7 +36,7 @@ class Provider:
     models: list[Model]
 
 
-ThinkingLevel = Literal["off", "low", "medium", "high", "xhigh", "max"]
+ThinkingLevel = Literal["none", "off", "low", "medium", "high", "xhigh", "max"]
 
 
 @dataclass

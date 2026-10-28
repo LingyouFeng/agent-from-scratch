@@ -1,20 +1,9 @@
-from collections.abc import Callable
-from typing import AsyncIterator
+from src.ai.api.openai_completion import OpenAICompletionAPI
 
-from src.ai.types import AssistantMessageEvent
-from src.ai.api.openai_completion import stream as openai_completion_stream
-from src.ai.model import Model
-from src.ai.model import StreamOptions
-from src.ai.types import AssistantMessage, Context
-
-type StreamAPI = Callable[
-    [Model, Context, StreamOptions | None], AsyncIterator[tuple[AssistantMessage, AssistantMessageEvent]]
-]
-
-_API_MAP: dict[str, StreamAPI] = {
-    "openai-completions": openai_completion_stream
+_API_MAP: dict[str, OpenAICompletionAPI] = {
+    "openai-completions": OpenAICompletionAPI(),
 }
 
 
-def get_stream_by_api(api: str) -> StreamAPI:
+def get_api_by_api(api: str) -> OpenAICompletionAPI | None:
     return _API_MAP.get(api)

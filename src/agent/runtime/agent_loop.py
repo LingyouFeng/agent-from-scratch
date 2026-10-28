@@ -8,6 +8,7 @@ from src.agent.status_bar import StatusBar
 from src.agent.types import (
     AgentEndEvent,
     AgentEvent,
+    AgentMessage,
     AgentMessageEndEvent,
     AgentMessageStartEvent,
     AgentMessageUpdateEvent,
@@ -16,19 +17,18 @@ from src.agent.types import (
     AgentToolExecutionStartEvent,
     AgentTurnEndEvent,
     AgentTurnStartEvent,
-    AgentStatusBarUpdateEvent, AgentMessage,
 )
-from src.ai.api.all import get_stream_by_api
+from src.ai.api.all import get_api_by_api
 from src.ai.model import Model
 from src.ai.model import StreamOptions
 from src.ai.types import AssistantMessageEventType
 from src.ai.types import (
-    UserMessage,
     AssistantMessage,
     Context,
     TextContent,
     ToolCall,
     ToolResultMessage,
+    UserMessage,
 )
 from src.util.time_util import get_timestamp_ms
 
@@ -60,12 +60,11 @@ class AgentLoop:
         for _ in range(Constants.MAX_TURN):
             if stop_event.is_set():
                 break
-            stream = get_stream_by_api(model.api)
-            if stream is None:
+            api = get_api_by_api(model.api)
+            if api is None:
                 raise ValueError("该模型找不到对应的api协议")
 
-            # 每次循环前先注入状态栏
-            await self._emit(AgentStatusBarUpdateEvent(self._status_bar.build()))
+            # 每次循环前注入系统状态栏信息
             self._inject_status_bar(context)
 
             has_tool_call = False
@@ -78,7 +77,7 @@ class AgentLoop:
                 await self._emit(AgentTurnStartEvent())
 
             is_first_message = True
-            async for message, event in stream(model, context, stream_options):
+            async for message, event in api.stream(model, context, stream_options):
                 if stop_event.is_set():
                     break
 
@@ -100,7 +99,8 @@ class AgentLoop:
                             arguments=json.dumps(toolcall.arguments),
                         )
                     )
-                    is_success, tool_result = self._tool_executor.execute(
+                    is_success, tool_result = await asyncio.to_thread(
+                        self._tool_executor.execute,
                         toolcall.id, toolcall.name, toolcall.arguments
                     )
                     await self._emit(
@@ -142,7 +142,6 @@ class AgentLoop:
         await self._emit(AgentEndEvent(context.messages))
 
     def _inject_status_bar(self, context: Context) -> None:
-        return
         """把当前状态栏作为一条 user message 注入 context。"""
         if self._status_bar is None:
             return

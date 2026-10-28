@@ -39,64 +39,40 @@ from src.ai.types import AssistantMessageErrorEvent
 from src.util.time_util import get_timestamp_ms
 
 
-async def stream(
-        model: Model, context: Context, options: StreamOptions | None = None
-) -> AsyncIterator[tuple[AssistantMessage, AssistantMessageEvent]]:
-    provider = default_registry.get_provider_by_id(model.provider)
-    if provider is None:
-        raise ValueError(f"No built-in provider {provider} with model {model.id}")
+class OpenAICompletionAPI:
+    """openai completion api 接入：stream 流式 + complete 非流式"""
 
-    if provider.api_key is None:
-        raise ValueError(f"Provider {provider.id} with model {model.id} has not configure api key")
+    async def stream(
+        self, model: Model, context: Context, options: StreamOptions | None = None
+    ) -> AsyncIterator[tuple[AssistantMessage, AssistantMessageEvent]]:
+        """流式调用，逐步产出消息与事件"""
+        client = self._create_client(model)
+        api_messages = self._build_messages(context)
+        api_tools = self._build_tools(context)
+        thinking_level = options.thinking_level if options else "off"
 
-    if provider.base_url is None:
-        raise ValueError(f"Provider {provider.id} with model {model.id} has not configure base url")
-
-    client = AsyncOpenAI(api_key=provider.api_key, base_url=provider.base_url)
-
-    # 组装请求messages：系统提示 + 历史消息
-    api_messages: list[ChatCompletionMessageParam] = [
-        ChatCompletionSystemMessageParam(role="system", content=context.systemPrompt)
-    ]
-    api_messages.extend(
-        converted for msg in context.messages if (converted := convert_message(msg))
-    )
-
-    # 注入工具
-    api_tools: list[ChatCompletionFunctionToolParam] = []
-    if context.tools:
-        for t in context.tools:
-            tool = ChatCompletionFunctionToolParam(
-                type="function",
-                function={
-                    "name": t.name,
-                    "description": t.description,
-                    "parameters": t.parameters,
-                },
-            )
-            api_tools.append(tool)
-
-    content: list[TextContent | ThinkingContent | ToolCall] = []
-    text_index, think_index, toolcall_index = None, None, {}
-    text_buffer, think_buffer, toolcall_buffer = "", "", {}
-    assistant_message = AssistantMessage(content=content, timestamp=get_timestamp_ms())
-
-    try:
-        stream_enabled = options.stream if options else False
-        thinking_level = options.thinking_level if options else "none"
-        response = await client.chat.completions.create(
-            model=model.id,
-            messages=api_messages,
-            stream=stream_enabled,
-            stream_options={"include_usage": True},
-            tools=api_tools,
-            reasoning_effort=thinking_level,
+        content: list[TextContent | ThinkingContent | ToolCall] = []
+        text_index, think_index = None, None
+        toolcall_index: dict[int, int] = {}
+        text_buffer, think_buffer = "", ""
+        toolcall_buffer: dict[int, dict] = {}
+        assistant_message = AssistantMessage(
+            content=content, timestamp=get_timestamp_ms()
         )
 
-        # 发送 start 事件
-        yield assistant_message, AssistantMessageStartEvent()
+        try:
+            response = await client.chat.completions.create(
+                model=model.id,
+                messages=api_messages,
+                stream=True,
+                stream_options={"include_usage": True},
+                tools=api_tools,
+                reasoning_effort=thinking_level,
+            )
 
-        if stream_enabled:
+            # 发送 start 事件
+            yield assistant_message, AssistantMessageStartEvent()
+
             async for chunk in response:
                 if not chunk.choices:
                     continue
@@ -180,7 +156,7 @@ async def stream(
                                 delta=raw_json,
                                 partial=assistant_message,
                             )
-                        except json.JSONDecodeError as e:
+                        except json.JSONDecodeError:
                             pass
 
                 # 结束
@@ -197,10 +173,10 @@ async def stream(
                             content=text_buffer,
                             partial=assistant_message,
                         )
-                    for toolcall_index in toolcall_index.values():
+                    for idx in toolcall_index.values():
                         yield assistant_message, AssistantMessageToolCallEndEvent(
-                            content_index=toolcall_index,
-                            toolcall=content[toolcall_index],
+                            content_index=idx,
+                            toolcall=content[idx],
                             partial=assistant_message,
                         )
                     # 发送 end 事件
@@ -209,101 +185,118 @@ async def stream(
                         message=assistant_message,
                     )
 
-        else:
+        except (RateLimitError, APITimeoutError, APIConnectionError) as e:
+            logging.error(f"\n遇到异常 {type(e).__name__}")
+            yield assistant_message, AssistantMessageErrorEvent(
+                reason="error",
+                error=assistant_message,
+            )
+            raise
+
+    async def complete(
+        self, model: Model, context: Context, options: StreamOptions | None = None
+    ) -> AssistantMessage:
+        """非流式调用，一次性返回完整消息"""
+        client = self._create_client(model)
+        api_messages = self._build_messages(context)
+        api_tools = self._build_tools(context)
+        thinking_level = options.thinking_level if options else "off"
+
+        content: list[TextContent | ThinkingContent | ToolCall] = []
+        assistant_message = AssistantMessage(
+            content=content, timestamp=get_timestamp_ms()
+        )
+
+        try:
+            response = await client.chat.completions.create(
+                model=model.id,
+                messages=api_messages,
+                stream=False,
+                tools=api_tools,
+                reasoning_effort=thinking_level,
+            )
             choice = response.choices[0]
             message = choice.message
             assistant_message.timestamp = response.created * 1000
 
             if message:
-                think_buffer = getattr(message, "reasoning", None)
-                if think_buffer:
-                    think_index = len(content)
-                    # 发送 think_start 事件
-                    yield assistant_message, AssistantMessageThinkStartEvent(
-                        content_index=think_index,
-                        partial=assistant_message,
-                    )
-                    content.append(ThinkingContent(thinking=think_buffer))
-                    # 发送 think_delta 事件
-                    yield assistant_message, AssistantMessageThinkDeltaEvent(
-                        content_index=think_index,
-                        delta=think_buffer,
-                        partial=assistant_message,
-                    )
-                    # 发送 think_end 事件
-                    yield assistant_message, AssistantMessageThinkEndEvent(
-                        content_index=think_index,
-                        content=think_buffer,
-                        partial=assistant_message,
+                # 思考文本
+                reasoning = getattr(message, "reasoning", None)
+                if reasoning:
+                    content.append(ThinkingContent(thinking=reasoning))
+
+                # 回复文本
+                if message.content:
+                    content.append(TextContent(text=message.content))
+
+                # 工具调用
+                for tc in message.tool_calls or []:
+                    try:
+                        arguments = json.loads(tc.function.arguments or "{}")
+                    except json.JSONDecodeError as e:
+                        raise ValueError(
+                            f"Tool {tc.function.name} arguments JSON 解析失败"
+                        ) from e
+                    content.append(
+                        ToolCall(
+                            id=tc.id,
+                            name=tc.function.name,
+                            arguments=arguments,
+                        )
                     )
 
-                text_buffer = message.content
-                if text_buffer:
-                    text_index = len(content)
-                    # 发送 text_start 事件
-                    yield assistant_message, AssistantMessageTextStartEvent(
-                        content_index=text_index,
-                        partial=assistant_message,
-                    )
-                    content.append(TextContent(text=text_buffer))
-                    # 发送 text_delta 事件
-                    yield assistant_message, AssistantMessageTextDeltaEvent(
-                        content_index=text_index,
-                        delta=text_buffer,
-                        partial=assistant_message,
-                    )
-                    # 发送 text_end 事件
-                    yield assistant_message, AssistantMessageTextEndEvent(
-                        content_index=text_index,
-                        content=text_buffer,
-                        partial=assistant_message,
-                    )
+        except (RateLimitError, APITimeoutError, APIConnectionError) as e:
+            logging.error(f"\n遇到异常 {type(e).__name__}")
+            raise
 
-            for idx, tc in enumerate(message.tool_calls or []):
-                try:
-                    arguments = json.loads(tc.function.arguments or "{}")
-                except json.JSONDecodeError as e:
-                    raise ValueError(
-                        f"Tool {tc.function.name} arguments JSON 解析失败"
-                    ) from e
-                # 发送 toolcall_start 事件
-                toolcall_index[idx] = len(content)
-                content.append(ToolCall(id="", name="", arguments={}))
-                yield assistant_message, AssistantMessageToolCallStartEvent(
-                    content_index=toolcall_index[idx],
-                    partial=assistant_message,
-                )
-                # 发送 toolcall_delta 事件
-                content[toolcall_index[idx]] = ToolCall(
-                    id=tc.id,
-                    name=tc.function.name,
-                    arguments=arguments,
-                )
-                yield assistant_message, AssistantMessageToolCallDeltaEvent(
-                    content_index=toolcall_index[idx],
-                    delta=tc.function.arguments,
-                    partial=assistant_message,
-                )
-                # 发送 toolcall_end 事件
-                yield assistant_message, AssistantMessageToolCallEndEvent(
-                    content_index=toolcall_index[idx],
-                    toolcall=content[toolcall_index[idx]],
-                    partial=assistant_message,
-                )
+        return assistant_message
 
-            if choice.finish_reason:
-                yield assistant_message, AssistantMessageDoneEvent(
-                    reason=choice.finish_reason,
-                    message=assistant_message,
-                )
+    def _create_client(self, model: Model) -> AsyncOpenAI:
+        provider = default_registry.get_provider_by_id(model.provider)
+        if provider is None:
+            raise ValueError(
+                f"No built-in provider {model.provider} with model {model.id}"
+            )
 
-    except (RateLimitError, APITimeoutError, APIConnectionError) as e:
-        logging.error(f"\n遇到异常 {type(e).__name__}")
-        yield assistant_message, AssistantMessageErrorEvent(
-            reason="error",
-            error=assistant_message,
+        if provider.api_key is None:
+            raise ValueError(
+                f"Provider {provider.id} with model {model.id} has not configure api key"
+            )
+
+        if provider.base_url is None:
+            raise ValueError(
+                f"Provider {provider.id} with model {model.id} has not configure base url"
+            )
+
+        return AsyncOpenAI(api_key=provider.api_key, base_url=provider.base_url)
+
+    def _build_messages(self, context: Context) -> list[ChatCompletionMessageParam]:
+        # 组装请求messages：系统提示 + 历史消息
+        api_messages: list[ChatCompletionMessageParam] = [
+            ChatCompletionSystemMessageParam(
+                role="system", content=context.systemPrompt
+            )
+        ]
+        api_messages.extend(
+            converted for msg in context.messages if (converted := convert_message(msg))
         )
-        raise
+        return api_messages
+
+    def _build_tools(self, context: Context) -> list[ChatCompletionFunctionToolParam]:
+        # 注入工具
+        api_tools: list[ChatCompletionFunctionToolParam] = []
+        if context.tools:
+            for t in context.tools:
+                tool = ChatCompletionFunctionToolParam(
+                    type="function",
+                    function={
+                        "name": t.name,
+                        "description": t.description,
+                        "parameters": t.parameters,
+                    },
+                )
+                api_tools.append(tool)
+        return api_tools
 
 
 def convert_message(msg: Message) -> ChatCompletionMessageParam | None:

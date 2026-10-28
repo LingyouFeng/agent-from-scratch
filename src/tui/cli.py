@@ -29,7 +29,6 @@ from src.agent.constant import Constants
 from src.agent.types import (
     AgentEvent,
     AgentEventType,
-    AgentStatusBarUpdateEvent,
     ModelRequestOptions,
 )
 from src.ai.model import Model, StreamOptions
@@ -288,6 +287,13 @@ class AgentTUI(App):
             case AgentEventType.TURN_END:
                 pass
 
+            case AgentEventType.MESSAGE_END:
+                # 首条用户消息后标题已生成并写入索引，立即刷新侧边栏
+                if ev.message.role == "user":
+                    self.sidebar.refresh_sessions()
+                    if self._active_id is not None:
+                        self.sidebar.highlight_session(self._active_id)
+
             case AgentEventType.MESSAGE_UPDATE:
                 if view is not None:
                     await view.handle_message_event(ev)
@@ -314,42 +320,9 @@ class AgentTUI(App):
                 if self._active_id is not None:
                     self.sidebar.highlight_session(self._active_id)
 
-            case AgentEventType.STATUS_BAR_UPDATE:
-                pass
-                # await self._on_status_bar_update(ev)
 
         if view is not None and is_active:
             view.scroll_end(animate=False)
-
-    # ---------------------------- 状态栏 ---------------------------- #
-    async def _on_status_bar_update(self, ev: AgentStatusBarUpdateEvent) -> None:
-        """把 StatusBar 文本渲染到状态栏 widget。
-
-        不直接用 escape + markup，而是按行解析着色，
-        既避免 todos 里的 [] 被 Rich markup 误解析，又能让状态一眼可辨。
-        """
-        bar = self.query_one("#statusbar", Static)
-        bar.update(self._render_status(ev.status_bar))
-
-    def _render_status(self, raw: str) -> Text:
-        text = Text()
-        for i, line in enumerate(raw.splitlines()):
-            if i > 0:
-                text.append("\n")
-            s = line.strip()
-            if s.startswith("system time:"):
-                text.append(line, style="dim")
-            elif s.startswith("todos:"):
-                text.append(line, style="bold cyan")
-            elif "[x]" in s:
-                text.append(line, style="green")
-            elif "[~]" in s:
-                text.append(line, style="yellow")
-            elif "[ ]" in s:
-                text.append(line, style="dim")
-            else:
-                text.append(line)
-        return text
 
     # ---------------------------- 交互 ---------------------------- #
     async def on_input_submitted(self, event: Input.Submitted) -> None:

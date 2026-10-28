@@ -120,26 +120,17 @@ class AgentToolExecutionEndEvent:
     is_success: bool
 
 
-@dataclass(frozen=True)
-class AgentStatusBarUpdateEvent:
-    type: Literal[AgentEventType.STATUS_BAR_UPDATE] = field(
-        default=AgentEventType.STATUS_BAR_UPDATE, kw_only=True
-    )
-    status_bar: str
-
-
 type AgentEvent = (
-        AgentStartEvent
-        | AgentEndEvent
-        | AgentTurnStartEvent
-        | AgentTurnEndEvent
-        | AgentMessageStartEvent
-        | AgentMessageUpdateEvent
-        | AgentMessageEndEvent
-        | AgentToolExecutionStartEvent
-        | AgentToolExecutionUpdateEvent
-        | AgentToolExecutionEndEvent
-        | AgentStatusBarUpdateEvent
+    AgentStartEvent
+    | AgentEndEvent
+    | AgentTurnStartEvent
+    | AgentTurnEndEvent
+    | AgentMessageStartEvent
+    | AgentMessageUpdateEvent
+    | AgentMessageEndEvent
+    | AgentToolExecutionStartEvent
+    | AgentToolExecutionUpdateEvent
+    | AgentToolExecutionEndEvent
 )
 
 
