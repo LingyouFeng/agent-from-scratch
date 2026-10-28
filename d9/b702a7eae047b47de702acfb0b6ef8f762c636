@@ -1,0 +1,107 @@
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.0.8",
+  "base_commit_sha": "d9b702a7eae047b47de702acfb0b6ef8f762c636",
+  "prompts": {},
+  "commit_stats": {
+    "git_diff_added_lines": 204,
+    "git_diff_deleted_lines": 238,
+    "ai_additions": 0,
+    "ai_accepted": 0,
+    "BYMC": 168,
+    "mixed_additions": 0,
+    "BYAC": 0,
+    "BYRC": 0,
+    "per_file": {
+      "src/agent/runtime/agent_loop.py": {
+        "BYMC": [
+          "11",
+          "21",
+          "31",
+          "63-64",
+          "67",
+          "80",
+          "102-103"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      },
+      "src/agent/types.py": {
+        "BYMC": [
+          "124-133",
+          "140"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      },
+      "src/ai/api/all.py": {
+        "BYMC": [
+          "1",
+          "3-4",
+          "8"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      },
+      "src/ai/api/openai_completion.py": {
+        "BYMC": [
+          "42-43",
+          "45-52",
+          "54-60",
+          "63-67",
+          "71",
+          "73-74",
+          "159",
+          "176",
+          "178-179",
+          "188-210",
+          "214-217",
+          "223-226",
+          "228-234",
+          "240-242",
+          "248-250",
+          "252",
+          "254-259",
+          "261-264",
+          "266-278",
+          "283-285",
+          "299"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      },
+      "src/ai/model.py": {
+        "BYMC": [
+          "39"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      },
+      "src/harness/session/session.py": {
+        "BYMC": [
+          "1-6",
+          "9-15",
+          "19-21",
+          "28-35",
+          "39",
+          "44-46",
+          "48",
+          "50-52",
+          "54-56"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      },
+      "src/tui/cli.py": {
+        "BYMC": [
+          "290-296"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      }
+    }
+  },
+  "commit_timestamp": 1793172531,
+  "requirement_id": ""
+}
