@@ -86,7 +86,7 @@ ConversationView > :first-child {
 
 /* ====== 模型选择器 ====== */
 #model-select {
-    width: 35;
+    width: 40;
     height: 1;                  /* 高度设为 1，视觉上最紧凑且不拥挤 */
     border: none !important;    /* 强制清除最外层边框 */
     padding: 0;
