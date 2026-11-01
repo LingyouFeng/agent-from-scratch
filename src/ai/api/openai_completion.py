@@ -34,16 +34,18 @@ from ai.types import (
     TextContent,
     ThinkingContent,
     ToolCall,
+    Usage,
 )
 from ai.types import AssistantMessageErrorEvent
 from util.time_util import get_timestamp_ms
+from util.token_util import estimate_messages_tokens
 
 
 class OpenAICompletionAPI:
     """openai completion api 接入：stream 流式 + complete 非流式"""
 
     async def stream(
-        self, model: Model, context: Context, options: StreamOptions | None = None
+            self, model: Model, context: Context, options: StreamOptions | None = None
     ) -> AsyncIterator[tuple[AssistantMessage, AssistantMessageEvent]]:
         """流式调用，逐步产出消息与事件"""
         client = self._create_client(model)
@@ -56,8 +58,12 @@ class OpenAICompletionAPI:
         toolcall_index: dict[int, int] = {}
         text_buffer, think_buffer = "", ""
         toolcall_buffer: dict[int, dict] = {}
+
+        usage = None
+        finish_reason = None
+
         assistant_message = AssistantMessage(
-            content=content, timestamp=get_timestamp_ms()
+            content=content, usage=usage, timestamp=get_timestamp_ms()
         )
 
         try:
@@ -74,6 +80,9 @@ class OpenAICompletionAPI:
             yield assistant_message, AssistantMessageStartEvent()
 
             async for chunk in response:
+                # usage 在最后一个 choices 为空的 chunk 里下发，必须先于 continue 捕获
+                if chunk.usage is not None:
+                    usage = chunk.usage
                 if not chunk.choices:
                     continue
                 choice = chunk.choices[0]
@@ -134,7 +143,7 @@ class OpenAICompletionAPI:
                                 "args": "",
                             }
 
-                            content.append(toolcall_buffer[tc.index])
+                            content.append(ToolCall(id=tc.id, name=tc.function.name, arguments={}))
                             yield assistant_message, AssistantMessageToolCallStartEvent(
                                 content_index=toolcall_index[tc.index],
                                 partial=assistant_message,
@@ -161,6 +170,7 @@ class OpenAICompletionAPI:
 
                 # 结束
                 if choice.finish_reason:
+                    finish_reason = choice.finish_reason
                     if think_index is not None:
                         yield assistant_message, AssistantMessageThinkEndEvent(
                             content_index=think_index,
@@ -179,11 +189,13 @@ class OpenAICompletionAPI:
                             toolcall=content[idx],
                             partial=assistant_message,
                         )
-                    # 发送 end 事件
-                    yield assistant_message, AssistantMessageDoneEvent(
-                        reason=choice.finish_reason,
-                        message=assistant_message,
-                    )
+
+            # 发送 end 事件
+            assistant_message.usage = _to_token_usage(usage, context)
+            yield assistant_message, AssistantMessageDoneEvent(
+                reason=finish_reason or "stop",
+                message=assistant_message,
+            )
 
         except (RateLimitError, APITimeoutError, APIConnectionError) as e:
             logging.error(f"\n遇到异常 {type(e).__name__}")
@@ -194,7 +206,7 @@ class OpenAICompletionAPI:
             raise
 
     async def complete(
-        self, model: Model, context: Context, options: StreamOptions | None = None
+            self, model: Model, context: Context, options: StreamOptions | None = None
     ) -> AssistantMessage:
         """非流式调用，一次性返回完整消息"""
         client = self._create_client(model)
@@ -204,7 +216,7 @@ class OpenAICompletionAPI:
 
         content: list[TextContent | ThinkingContent | ToolCall] = []
         assistant_message = AssistantMessage(
-            content=content, timestamp=get_timestamp_ms()
+            content=content, usage=None, timestamp=get_timestamp_ms()
         )
 
         try:
@@ -218,6 +230,7 @@ class OpenAICompletionAPI:
             choice = response.choices[0]
             message = choice.message
             assistant_message.timestamp = response.created * 1000
+            assistant_message.usage = _to_token_usage(response.usage, context)
 
             if message:
                 # 思考文本
@@ -354,3 +367,26 @@ def convert_message(msg: Message) -> ChatCompletionMessageParam | None:
             "content": "\n".join(content_parts),
         }
     return None
+
+
+def _to_token_usage(usage, context) -> Usage:
+    """把 provider 的 usage 转成内部 Usage；provider 没返回 usage 时降级为 0 + 估算上下文。"""
+    context_tokens = estimate_messages_tokens(context.messages)
+    if usage is None:
+        return Usage(
+            context_tokens=context_tokens,
+            prompt_tokens=0,
+            completion_tokens=0,
+            total_tokens=0,
+            prompt_cache_hit_tokens=0,
+        )
+
+    details = getattr(usage, "prompt_tokens_details", None)
+    cached = (getattr(details, "cached_tokens", 0) or 0) if details is not None else 0
+    return Usage(
+        context_tokens=context_tokens,
+        prompt_tokens=usage.prompt_tokens or 0,
+        completion_tokens=usage.completion_tokens or 0,
+        total_tokens=usage.total_tokens or 0,
+        prompt_cache_hit_tokens=cached,
+    )

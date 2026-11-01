@@ -37,10 +37,20 @@ class UserMessage:
     timestamp: int  # Unix毫秒时间戳
 
 
+@dataclass(frozen=True)
+class Usage:
+    context_tokens: int
+    prompt_tokens: int
+    completion_tokens: int
+    total_tokens: int
+    prompt_cache_hit_tokens: int
+
+
 @dataclass
 class AssistantMessage:
     role: Literal["assistant"] = field(default="assistant", kw_only=True)
     content: list[TextContent | ThinkingContent | ToolCall]
+    usage: Usage | None
     timestamp: int
 
 

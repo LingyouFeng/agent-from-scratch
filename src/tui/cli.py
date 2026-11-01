@@ -35,8 +35,9 @@ from ai.model import Model, StreamOptions
 from ai.provider.registry import default_registry
 from harness.session.runtime import SessionRuntime, load_context_messages
 from harness.session.session_manager import SessionManager
-from tui.chat_area import ChatArea, ConversationView
+from tui.chat_area import ChatArea, ConversationView, TokenSummary
 from tui.sidebar import Sidebar
+from tui.usage import UsageStats
 
 _DRAFT_SESSION_ID = "__draft__"
 
@@ -82,9 +83,10 @@ class AgentTUI(App):
         yield Footer()
 
     async def on_mount(self) -> None:
-        self.title = "Agent TUI"
+        self.title = "Agent Harness"
         self.sub_title = "idle"
         self.query_one(Input).focus()
+        self._refresh_stats(None)
 
     @property
     def chat_area(self) -> ChatArea:
@@ -168,6 +170,7 @@ class AgentTUI(App):
             inp.focus()
         self._set_running(busy)
         self.sub_title = "working…" if busy else "idle"
+        self._refresh_stats(runtime)
 
         self.sidebar.highlight_session(session_id)
 
@@ -230,6 +233,7 @@ class AgentTUI(App):
         inp.focus()
         self._set_running(False)
         self.sub_title = "idle"
+        self._refresh_stats(None)
         # 清除侧边栏高亮（空字符串表示无选中）
         self.sidebar.highlight_session("")
 
@@ -256,6 +260,7 @@ class AgentTUI(App):
             ModelRequestOptions(model=model, stream_options=self._stream_options)
         )
         self.session_manager.update_model(runtime.session_id, model.id)
+        self._refresh_stats(runtime)
         self.notify(f"已切换模型：{model.name}", title="模型")
 
     # ------------------------ 事件消费（每会话一个 worker） ------------------------ #
@@ -279,12 +284,14 @@ class AgentTUI(App):
             case AgentEventType.AGENT_START:
                 if is_active:
                     self.sub_title = "working…"
+                    self._refresh_stats(runtime)
 
             case AgentEventType.TURN_START:
                 pass
 
             case AgentEventType.TURN_END:
-                pass
+                if is_active:
+                    self._refresh_stats(runtime)
 
             case AgentEventType.MESSAGE_END:
                 # 首条用户消息后标题已生成并写入索引，立即刷新侧边栏
@@ -314,6 +321,7 @@ class AgentTUI(App):
                     inp.focus()
                     self._set_running(False)
                     self.sub_title = "idle"
+                    self._refresh_stats(runtime)
                 # 会话标题/预览可能已更新（首条消息设标题）
                 self.sidebar.refresh_sessions()
                 if self._active_id is not None:
@@ -342,8 +350,8 @@ class AgentTUI(App):
 
         # 运行中 → 点击执行停止
         if runtime.agent.busy:
-            # 先切到「停止中…」并禁用，防止重复点击
-            event.button.label = "停止中…"
+            # 先切到「停止中」并禁用，防止重复点击；用单字图标保持按钮尺寸不变
+            event.button.label = "…"
             event.button.disabled = True
             try:
                 runtime.agent.stop()
@@ -383,15 +391,39 @@ class AgentTUI(App):
         self.run_agent(runtime, text)
 
     def _set_running(self, running: bool) -> None:
-        """根据当前会话 agent 状态切换发送按钮的外观/可用性。"""
+        """根据当前会话 agent 状态切换圆形按钮的图标与配色。"""
         btn = self.chat_area.send_button
         btn.disabled = False
         if running:
-            btn.label = "停止"
+            btn.label = "■"
             btn.variant = "error"
         else:
-            btn.label = "发送"
+            btn.label = "↑"
             btn.variant = "primary"
+
+    def _refresh_stats(self, runtime: SessionRuntime | None) -> None:
+        """从 SessionMeta 读取轮数与 token 用量，刷新底栏（会话元数据是唯一数据源）。"""
+        if runtime is None:
+            self.chat_area.update_stats(UsageStats())
+            return
+
+        meta = self.session_manager.get_index(runtime.session_id)
+        self.chat_area.update_stats(
+            UsageStats(
+                turns=meta.total_turns,
+                steps=meta.total_steps,
+                total_tokens=meta.total_tokens if meta else 0,
+                prompt_tokens=meta.prompt_tokens if meta else 0,
+                completion_tokens=meta.completion_tokens if meta else 0,
+                cached_tokens=meta.prompt_cache_hit_tokens if meta else 0,
+                context_tokens=meta.context_tokens if meta else 0,
+            )
+        )
+
+    def on_token_summary_clicked(self, event: TokenSummary.Clicked) -> None:
+        """点击底栏中间的 token 汇总，在点击位置上方悬浮明细。"""
+        event.stop()
+        self.chat_area.open_usage_popup()
 
     @work(group="agent")
     async def run_agent(self, runtime: SessionRuntime, prompt: str) -> None:

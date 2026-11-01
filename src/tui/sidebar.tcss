@@ -65,17 +65,21 @@
     display: block;
 }
 
-/* 标题样式 */
+/* 标题样式：单行 + 省略号，避免长标题把会话项撑高 */
 .chat-title {
     text-style: bold;
     color: $text;
-    height: auto;
+    height: 1;
+    text-wrap: nowrap;
+    text-overflow: ellipsis;
+    overflow: hidden;
 }
 
 /* 预览样式 */
 .chat-preview {
     color: $text-muted;
-    height: auto;
+    height: 1;
+    text-wrap: nowrap;
     text-overflow: ellipsis; /* 太长时显示省略号 */
     overflow: hidden;
 }

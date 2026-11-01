@@ -35,85 +35,197 @@ ConversationView > :first-child {
     margin-top: 0;
 }
 
-/* ====== 输入区容器（输入行 + 状态行） ====== */
+/* ====== 输入区容器（输入框 + 底部右侧操作区） ====== */
 #input-area {
     width: 100%;
     height: auto;
-    dock: bottom;
-    padding: 1;
     margin-top: 1;
-    background: $surface;
-}
-
-#input-row {
-    width: 100%;
-    height: auto;
-    align: center middle;
-}
-
-/* ====== 输入栏下方状态行 ====== */
-#status-row {
-    width: 100%;
-    height: auto;
-    margin-top: 1;
-    align: center middle;
-}
-
-/* 左侧 token 信息 / 右侧思考强度：与 Select 等高并垂直居中 */
-#token-usage,
-#context-tokens,
-#thinking-level {
-    width: auto;
-    height: 1;
+    margin-bottom: 1; /* 与下方统计栏/明细面板留出间隙 */
     padding: 0 1;
-    content-align: center middle;
-    color: $text-muted;
-}
-
-/* 弹性占位：把右侧内容推到最右 */
-.status-spacer {
-    width: 1fr;
-    height: 1;
-}
-
-/* ====== 文本框 ====== */
-#prompt {
-    width: 1fr;
-    height: 3;
-    margin: 0;
+    background: $surface;
     border: tall $surface-lighten-2;
 }
 
-/* ====== 模型选择器 ====== */
-#model-select {
-    width: 40;
-    height: 1;                  /* 高度设为 1，视觉上最紧凑且不拥挤 */
-    border: none !important;    /* 强制清除最外层边框 */
-    padding: 0;
-    background: $surface;
-}
-
-/* 穿透清除内部 SelectCurrent 组件的边框和多余高度 */
-#model-select > SelectCurrent {
-    border: none !important;
-    padding: 0 1;               /* 左右留 1 格，上下为 0 */
-    height: 1fr;                /* 撑满父容器 */
-    background: $surface;
-    content-align: left middle; /* 确保文字垂直居中 */
-}
-
-#prompt:focus {
+/* 输入区里任意控件获得焦点时，整条输入区高亮 */
+#input-area:focus-within {
     border: tall $primary;
 }
 
-/* ====== 发送按钮 ====== */
+/* ====== 文本框：单行输入，自身不再画边框 ====== */
+#prompt {
+    width: 100%;
+    height: 1;
+    margin: 0;
+    padding: 0 1;
+    border: none;
+    background: transparent;
+}
+
+#prompt:focus {
+    border: none;
+}
+
+/* ====== 输入区底部：模型选择 + 圆形发送按钮，固定在右下 ====== */
+#composer-toolbar {
+    width: 100%;
+    height: 3;
+    margin: 0;
+}
+
+#composer-actions {
+    dock: right;
+    width: auto;
+    height: 3;
+}
+
+#model-select {
+    width: 38;
+    height: 1;
+    margin-top: 1; /* 与发送按钮的箭头行对齐 */
+    border: none !important;
+    padding: 0;
+    background: transparent;
+}
+
+#model-select > SelectCurrent {
+    border: none !important;
+    padding: 0 2;
+    height: 1;
+    background: transparent;
+    content-align: left middle;
+}
+
+/* 圆形发送按钮：5x3 圆角边框 + 图标；hover 填充，聚焦只换边框 */
 #send {
-    width: 8;
-    min-width: 8;
+    width: 5;
+    min-width: 5;
     height: 3;
     margin: 0 0 0 1;
     padding: 0;
+    border: round $primary;
+    background: transparent;
+    color: $primary;
     content-align: center middle;
+}
+
+#send:hover {
+    background: $primary;
+    color: $text;
+}
+
+#send:focus {
+    border: round $primary-lighten-2;
+}
+
+#send.-error {
+    border: round $error;
+    background: transparent;
+    color: $error;
+}
+
+#send.-error:hover {
+    background: $error;
+    color: $text;
+}
+
+#send:disabled {
+    border: round $surface-lighten-2;
+    background: transparent;
+    color: $text-muted;
+}
+
+/* ====== 统计栏：轮数/部署 | Token 汇总（点击展开明细） | 上下文使用率 ====== */
+#session-stats {
+    width: 100%;
+    height: 1;
+    padding: 0 2;
+    margin-bottom: 1; /* 与窗口底部留出呼吸空间 */
+    background: transparent; /* 与窗口背景一致 */
+}
+
+#stat-turns {
+    width: 1fr;
+    height: 1;
+    color: $text-muted;
+}
+
+#stat-tokens {
+    width: auto;
+    height: 1;
+    padding: 0 2;
+    color: $text-muted;
+}
+
+#stat-tokens:hover {
+    color: $text;
+    background: $boost;
+    text-style: underline;
+}
+
+#stat-context {
+    width: 1fr;
+    height: 1;
+    color: $text-muted;
+    content-align: right middle;
+}
+
+/* ====== Token 明细浮层（悬浮在统计栏上方，不挤占消息区） ====== */
+UsagePopup {
+    background: transparent;
+    align-horizontal: left;
+    align-vertical: top;
+    overflow: hidden;
+}
+
+#usage-panel {
+    width: 100%;
+    height: auto;
+    dock: bottom;
+    padding: 0 1;
+    background: $surface;
+    border: round $primary;
+}
+
+#usage-head {
+    width: 100%;
+    height: 1;
+}
+
+#usage-title {
+    width: auto;
+    height: 1;
+    text-style: bold;
+    color: $text;
+}
+
+#usage-subtitle {
+    width: 1fr;
+    height: 1;
+    color: $text-muted;
+    content-align: right middle;
+}
+
+.usage-col {
+    height: auto;
+}
+
+.usage-row {
+    height: 1;
+}
+
+.usage-label {
+    width: 13;
+    height: 1;
+    padding-left: 1;
+    color: $text-muted;
+}
+
+.usage-value {
+    width: 1fr;
+    height: 1;
+    padding-right: 2;
+    color: $text;
+    content-align: right middle;
 }
 
 /* ====== 用户消息行 ====== */

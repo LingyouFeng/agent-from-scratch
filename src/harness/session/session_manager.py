@@ -9,12 +9,22 @@ from pydantic_core import to_jsonable_python
 
 from agent.constant import Constants
 from agent.types import AgentMessage
+from ai.types import Usage
 
 
 class SessionMeta(BaseModel):
     id: str
     title: str = Field(default="untitled")
-    model: str = Field(default=Constants.DEFAULT_MODEL_ID)  # 会话关联的模型 id
+    model: str = Field(default=Constants.DEFAULT_MODEL_ID)
+    total_turns: int = Field(default=0)  # 用户发起提问的轮数
+    total_steps: int = Field(default=0)  # 调用大模型的总次数
+    total_tokens: int = Field(default=0)  # 会话消费的总token（输入和输出）
+    prompt_tokens: int = Field(default=0)  # 用户 prompt 所包含的 token 数
+    completion_tokens: int = Field(default=0)  # 模型 completion 产生的 token 数
+    context_tokens: int = Field(default=0)  # 最近一次请求的上下文长度
+    cache_hit_ratio: float = Field(default=0.0)  # 缓存命中率
+    prompt_cache_hit_tokens: int = Field(default=0)  # 用户 prompt 中，命中上下文缓存的 token 数
+    prompt_cache_miss_tokens: int = Field(default=0)  # 用户 prompt 中，未命中上下文缓存的 token 数
     created_at: datetime = Field(default=datetime.now())
     updated_at: datetime = Field(default=datetime.now())
 
@@ -201,3 +211,34 @@ class SessionManager:
         except OSError:
             return []
         return result
+
+    def add_turn(self, session_id: str) -> None:
+        meta = self._session_index.get_index(session_id)
+        if meta is None:
+            raise RuntimeError(f"找不到会话{session_id}")
+        meta.total_turns += 1
+        meta.updated_at = datetime.now()
+        self._session_index.upsert_index(meta)
+
+    def add_usage(self, session_id: str, usage: Usage) -> None:
+        """把一次模型调用的用量累计进会话元数据（SessionMeta 是唯一数据源）。"""
+        meta = self._session_index.get_index(session_id)
+        if meta is None:
+            raise RuntimeError(f"找不到会话{session_id}")
+
+        meta.total_steps += 1
+        meta.context_tokens = usage.context_tokens
+        meta.total_tokens += usage.total_tokens
+        meta.prompt_tokens += usage.prompt_tokens
+        meta.completion_tokens += usage.completion_tokens
+        meta.prompt_cache_hit_tokens += usage.prompt_cache_hit_tokens
+        meta.prompt_cache_miss_tokens += max(
+            usage.prompt_tokens - usage.prompt_cache_hit_tokens, 0
+        )
+        meta.cache_hit_ratio = (
+            meta.prompt_cache_hit_tokens / meta.prompt_tokens
+            if meta.prompt_tokens
+            else 0.0
+        )
+        meta.updated_at = datetime.now()
+        self._session_index.upsert_index(meta)

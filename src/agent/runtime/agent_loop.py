@@ -67,8 +67,8 @@ class AgentLoop:
             # 每次循环前注入系统状态栏信息
             self._inject_status_bar(context)
 
+            usage = None
             has_tool_call = False
-
             last_assistant_message = None
             tool_calls: list[ToolCall] = []
             tool_results: list[ToolResultMessage] = []
@@ -122,6 +122,7 @@ class AgentLoop:
                     ))
 
                 if event.type == AssistantMessageEventType.DONE:
+                    usage = event.message.usage
                     last_assistant_message = event.message
                     await self._emit(AgentMessageEndEvent(event.message))
                     await self._emit(AgentTurnEndEvent(event.message, tool_results))
@@ -132,6 +133,7 @@ class AgentLoop:
                 context.messages.extend([
                     AssistantMessage(
                         content=tool_calls,
+                        usage=usage,
                         timestamp=get_timestamp_ms()
                     ),
                     *tool_results

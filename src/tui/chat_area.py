@@ -17,7 +17,9 @@ import datetime
 import json
 
 from rich.markup import escape
+from textual import events
 from textual.containers import Horizontal, Vertical, VerticalScroll
+from textual.message import Message
 from textual.widgets import Button, Collapsible, Input, Markdown, Select, Static
 
 from agent.constant import Constants
@@ -37,6 +39,8 @@ from ai.types import (
     ToolResultMessage,
     UserMessage,
 )
+from tui.usage import UsageStats, format_tokens
+from tui.usage_detail import UsagePopup
 from util.text_util import _is_non_text, _safe_body
 
 
@@ -380,8 +384,20 @@ def _model_options() -> list[tuple[str, str]]:
         for model in default_registry.get_builtin_models()
     ]
 
+
+class TokenSummary(Static):
+    """底栏中间的 token 汇总；点击后由上层打开明细弹窗。"""
+
+    class Clicked(Message):
+        """用户点击了 token 汇总。"""
+
+    def on_click(self, event: events.Click) -> None:
+        event.stop()
+        self.post_message(self.Clicked())
+
+
 class ChatArea(Vertical):
-    """聊天区域：多个会话视图容器 + 共享输入行。
+    """聊天区域：多个会话视图容器 + 共享输入行与统计栏。
 
     样式见 chat_area.tcss（由 AgentTUI 统一加载）。
     """
@@ -389,27 +405,56 @@ class ChatArea(Vertical):
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
         self._views: dict[str, ConversationView] = {}
+        self._stats = UsageStats()
 
     # ---------------------------- 布局 ---------------------------- #
     def compose(self):
         yield Vertical(id="views")
+        # 输入区：上方输入框，底部右侧是模型选择 + 圆形发送按钮
         with Vertical(id="input-area"):
-            # 第一行：输入框 + 发送按钮
-            with Horizontal(id="input-row"):
-                yield Input(placeholder="输入消息，回车发送…", id="prompt")
-                yield Button("发送", id="send", variant="primary")
-            # 第二行：左边 token 用量/上下文，右边模型选择 + 思考强度
-            with Horizontal(id="status-row"):
-                yield Static("Token 消耗: 0", id="token-usage")
-                yield Static("上下文: 0/128k", id="context-tokens")
-                yield Static("", classes="status-spacer")
-                yield Select(
-                    _model_options(),
-                    value=Constants.DEFAULT_MODEL_ID,
-                    id="model-select",
-                    allow_blank=False,
-                )
-                yield Static("思考强度: high", id="thinking-level")
+            yield Input(placeholder="输入消息，回车发送…", id="prompt")
+            with Horizontal(id="composer-toolbar"):
+                with Horizontal(id="composer-actions"):
+                    yield Select(
+                        _model_options(),
+                        value=Constants.DEFAULT_MODEL_ID,
+                        id="model-select",
+                        allow_blank=False,
+                        compact=True,
+                    )
+                    yield Button("↑", id="send", variant="primary")
+        # 统计栏：轮数/部署 | Token 汇总（点击悬浮明细） | 上下文使用率
+        with Horizontal(id="session-stats"):
+            yield Static("0 轮 0 步", id="stat-turns")
+            yield TokenSummary("Token 0 · 缓存命中 0%", id="stat-tokens")
+            yield Static("上下文 0 / 1M (0.0%)", id="stat-context")
+
+    def open_usage_popup(self) -> None:
+        """在 token 汇总上方悬浮展开明细（浮层会盖住输入框，不挤占布局）。"""
+        anchor = self.query_one("#stat-tokens").region
+        bounds = self.query_one("#session-stats").region
+        self.app.push_screen(UsagePopup(self._stats, anchor, bounds))
+
+    def update_stats(self, stats: UsageStats) -> None:
+        """由 AgentTUI 在事件到达 / 切换会话时调用，刷新底栏。"""
+        self._stats = stats
+        if not self.is_mounted:
+            return
+
+        self.query_one("#stat-turns", Static).update(
+            f"[b]{stats.turns}[/b] 轮 [b]{stats.steps}[/b] 步"
+        )
+        self.query_one("#stat-tokens", TokenSummary).update(
+            f"Token [b]{format_tokens(stats.total_tokens)}[/b]"
+            f" · 缓存命中 [b]{stats.cache_hit_rate * 100:.0f}%[/b]"
+        )
+        self.query_one("#stat-context", Static).update(
+            f"上下文 [b]{format_tokens(stats.context_tokens)}[/b] / 1M"
+            f" [dim]({stats.context_ratio * 100:.1f}%)[/dim]"
+        )
+        # 明细弹层打开时同步刷新
+        if isinstance(self.app.screen, UsagePopup):
+            self.app.screen.update_stats(stats)
 
     # ---------------------------- 视图管理 ---------------------------- #
     async def create_view(self, session_id: str) -> ConversationView:
