@@ -1,4 +1,5 @@
 import json
+import threading
 import uuid
 from datetime import datetime
 from pathlib import Path
@@ -40,9 +41,15 @@ class SessionIndex:
     def __init__(self, save_path: Path):
         self._index_file = save_path / "index.json"
         self._index: dict[str, SessionMeta] = self.load_index()
+        # 落盘挪到线程后，多会话/标题任务可能并发写盘：锁保护 tmp 写入与替换
+        self._save_lock = threading.Lock()
 
     def get_index(self, session_id: str) -> SessionMeta:
         return self._index.get(session_id)
+
+    def list_index(self) -> list[SessionMeta]:
+        """所有会话元数据（直接读内存索引，不读盘）。"""
+        return list(self._index.values())
 
     def load_index(self) -> dict[str, SessionMeta]:
         if not self._index_file.exists():
@@ -55,15 +62,16 @@ class SessionIndex:
         return {m.id: m for m in metas}
 
     def save_index(self) -> None:
-        tmp = self._index_file.with_suffix(".json.tmp")
-        # dict -> list；想保序就用 dict 的插入顺序（Py3.7+ 保证）
-        tmp.write_text(
-            _SessionList.dump_json(list(self._index.values()), indent=2).decode(
-                "utf-8"
-            ),
-            encoding="utf-8",
-        )
-        tmp.replace(self._index_file)
+        with self._save_lock:
+            tmp = self._index_file.with_suffix(".json.tmp")
+            # dict -> list；想保序就用 dict 的插入顺序（Py3.7+ 保证）
+            tmp.write_text(
+                _SessionList.dump_json(list(self._index.values()), indent=2).decode(
+                    "utf-8"
+                ),
+                encoding="utf-8",
+            )
+            tmp.replace(self._index_file)
 
     def upsert_index(self, meta: SessionMeta) -> None:
         self._index[meta.id] = meta
@@ -156,7 +164,7 @@ class SessionManager:
         self._session_index.remove_from_index(session_id)
 
     def get_session_list(self) -> list[SessionItem]:
-        """获取所有会话展示数据"""
+        """获取所有会话展示数据（内存索引，不再每次读盘解析 index.json）"""
         return [
             SessionItem(
                 id=meta.id,
@@ -165,7 +173,7 @@ class SessionManager:
                 created_at=meta.created_at,
                 updated_at=meta.updated_at,
             )
-            for meta in self._session_index.load_index().values()
+            for meta in self._session_index.list_index()
         ]
 
     def _get_preview(self, session_id: str, max_len: int = 50) -> str:

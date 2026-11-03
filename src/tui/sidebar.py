@@ -11,7 +11,7 @@ from textual.containers import Horizontal, Vertical
 from textual.message import Message
 from textual.widgets import Button, ListItem, ListView, Static
 
-from harness.session.session_manager import SessionManager
+from harness.session.session_manager import SessionItem
 
 
 class Sidebar(Vertical):
@@ -32,17 +32,16 @@ class Sidebar(Vertical):
             super().__init__()
             self.session_id = session_id
 
-    def __init__(self, session_manager: SessionManager, **kwargs) -> None:
+    def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
-        self.session_manager = session_manager
+        # 上次渲染的数据指纹（id/title/preview）：数据没变就不重建列表，
+        # 非首轮消息触发的刷新是 no-op
+        self._rendered_fp: list[tuple[str, str, str]] | None = None
 
     # ---------------------------- 布局 ---------------------------- #
     def compose(self):
         yield Button("[Ctrl+N] 新建对话", id="new-chat-btn", variant="primary")
         yield ListView(id="chat-list")
-
-    def on_mount(self) -> None:
-        self.refresh_sessions()
 
     # ---------------------------- 会话列表 ---------------------------- #
     def _make_item(self, session_id: str, title: str, preview: str = "") -> ListItem:
@@ -60,11 +59,19 @@ class Sidebar(Vertical):
         item.chat_title = title
         return item
 
-    def refresh_sessions(self) -> None:
-        """从 SessionManager 重新加载会话列表（新建会话/标题更新后调用）。"""
+    def refresh_sessions(self, sessions: list[SessionItem]) -> None:
+        """用给定数据重建会话列表（AgentTUI 喂数据：新建/标题更新后调用）。
+
+        数据指纹（id/title/preview）无变化时 no-op：
+        会话真正展示的只有这三个字段，updated_at 等元数据变化不影响显示。
+        """
+        fp = [(s.id, s.title, s.preview) for s in sessions]
+        if fp == self._rendered_fp:
+            return
+        self._rendered_fp = fp
         chat_list = self.query_one("#chat-list", ListView)
         chat_list.clear()
-        for chat in self.session_manager.get_session_list():
+        for chat in sessions:
             chat_list.append(self._make_item(chat.id, chat.title, chat.preview))
 
     def highlight_session(self, session_id: str) -> None:

@@ -1,3 +1,6 @@
+import asyncio
+import logging
+
 from agent.constant import Constants
 from agent.types import AgentEvent, AgentEventType, AgentMessage
 from ai.api.all import get_api_by_api
@@ -31,13 +34,26 @@ class Session:
             stream=False, thinking_level="none"
         )
         self.api = get_api_by_api(self._model.api)
+        # 持有标题任务引用，避免任务完成前被 GC
+        self._title_task: asyncio.Task | None = None
 
     async def handle(self, event: AgentEvent) -> None:
+        # 标题调度依赖事件循环（create_task），必须留在事件循环线程
+        if (
+            event.type == AgentEventType.MESSAGE_END
+            and event.message.role == "user"
+        ):
+            self._schedule_title_update(event.message)
+
+        # 落盘整体挪到线程执行，避免同步文件 IO 阻塞事件循环；
+        # 同一事件内顺序执行，跨事件顺序仍由 publish 的同步扇出保证
+        await asyncio.to_thread(self._persist, event)
+
+    def _persist(self, event: AgentEvent) -> None:
+        """同步落盘逻辑：只在 worker 线程上运行，不碰事件循环。"""
         match event.type:
             case AgentEventType.MESSAGE_END:
                 if event.message.role == "user":
-                    # 生成标题
-                    await self._update_title(event.message)
                     # 更新session meta轮数
                     self.session_manager.add_turn(self.session_id)
 
@@ -46,6 +62,17 @@ class Session:
             case AgentEventType.TURN_END:
                 self.session_manager.save_session(self.session_id, event.tool_results)
                 self.session_manager.add_usage(self.session_id, event.message.usage)
+
+    def _schedule_title_update(self, message: AgentMessage) -> None:
+        """后台生成标题；失败只记日志，保持 untitled 待下次用户消息重试。"""
+
+        async def _run() -> None:
+            try:
+                await self._update_title(message)
+            except Exception:  # noqa: BLE001
+                logging.exception("生成会话标题失败")
+
+        self._title_task = asyncio.create_task(_run())
 
     async def _update_title(self, message: AgentMessage) -> None:
         """使用第一轮对话，用非流式调用大模型生成会话标题"""

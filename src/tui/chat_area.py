@@ -114,9 +114,6 @@ class ConversationView(VerticalScroll):
         for msg in messages:
             if isinstance(msg, UserMessage):
                 text = self._extract_user_text(msg)
-                # 跳过注入的状态栏消息
-                if text.startswith("<status>"):
-                    continue
                 await self.mount_user_message(text, timestamp_ms=msg.timestamp)
 
             elif isinstance(msg, AssistantMessage):
@@ -195,6 +192,7 @@ class ConversationView(VerticalScroll):
                 expanded_symbol="",
             )
             await self.mount(self._thinking_collapsible)
+            self.scroll_end(animate=False)
         self._thinking_buf.append(text)
         self._thinking_dirty = True
 
@@ -233,6 +231,7 @@ class ConversationView(VerticalScroll):
         if self._stream_md is None:
             self._stream_md = Markdown("", classes="agent-msg")
             await self.mount(self._stream_md)
+            self.scroll_end(animate=False)
         self._stream_dirty = True
 
     async def _on_text_end(self) -> None:
@@ -249,14 +248,21 @@ class ConversationView(VerticalScroll):
 
     # ---------------------------- 节流刷新 ---------------------------- #
     def _flush_stream(self) -> None:
-        """interval 回调：同时刷新正文和 thinking。"""
+        """interval 回调：同时刷新正文和 thinking，并在有更新时跟进滚动。"""
+        scrolled = False
         if self._stream_dirty and self._stream_md is not None:
             self._stream_dirty = False
             self._stream_md.update("".join(self._stream_buf))
+            scrolled = True
 
         if self._thinking_dirty and self._thinking_static is not None:
             self._thinking_dirty = False
             self._thinking_static.update(escape("".join(self._thinking_buf)))
+            scrolled = True
+
+        # 滚动收敛到刷新 tick：由每事件一次降为 20fps 一次
+        if scrolled:
+            self.scroll_end(animate=False)
 
     def reset_stream(self) -> None:
         # 正文

@@ -2,22 +2,25 @@
 """一个用 Textual 写的 Agent TUI。
 
 架构：
-    每个会话一个 SessionRuntime（独立 EventBus + Agent + 落盘），
+    每个会话一个 SessionRuntime（独立 EventBus + Agent + 落盘，核心层门面），
     AgentTUI 为每个 runtime 启动一个消费 worker，
     事件始终路由到该会话自己的 ConversationView。
 
     切换会话 = 显示/隐藏对应的 ConversationView，
     因此多个会话可以同时流式输出，切换时都能看到各自的实时效果。
 
+    边界约定：TUI 只通过 SessionService / SessionRuntime 的窄接口与核心层交互，
+    不直接触碰 Agent / EventBus / SessionManager。
+
 组件划分：
-    Sidebar           左侧会话列表（sidebar.py）
+    Sidebar           左侧会话列表（sidebar.py，由 AgentTUI 喂数据）
     ChatArea          右侧聊天区容器 + 共享输入行（chat_area.py）
     ConversationView  每会话一份的消息视图（chat_area.py）
-    AgentTUI          组合层：管理 SessionRuntime、事件路由、会话切换（本文件）
+    SessionService    会话簿记 + runtime 注册表（核心层唯一入口，service.py）
+    AgentTUI          组合层：激活会话管理、事件路由、会话切换（本文件）
 """
 
 from __future__ import annotations
-
 from pathlib import Path
 
 from textual import work
@@ -26,15 +29,9 @@ from textual.containers import Horizontal
 from textual.widgets import Button, Footer, Header, Input, Select
 
 from agent.constant import Constants
-from agent.types import (
-    AgentEvent,
-    AgentEventType,
-    ModelRequestOptions,
-)
-from ai.model import Model, StreamOptions
-from ai.provider.registry import default_registry
-from harness.session.runtime import SessionRuntime, load_context_messages
-from harness.session.session_manager import SessionManager
+from agent.types import AgentEvent, AgentEventType
+from harness.session.runtime import SessionRuntime
+from harness.session.service import SessionService
 from tui.chat_area import ChatArea, ConversationView, TokenSummary
 from tui.sidebar import Sidebar
 from tui.usage import UsageStats
@@ -55,19 +52,13 @@ class AgentTUI(App):
         ("ctrl+n", "focus_input", "聚焦输入"),
     ]
 
-    def __init__(self, session_manager: SessionManager) -> None:
+    def __init__(self, service: SessionService) -> None:
         super().__init__()
-        self.session_manager = session_manager
-
-        # 会话运行时与视图，key 均为 session_id
-        self._runtimes: dict[str, SessionRuntime] = {}
+        self.service = service
+        # 当前激活的会话 id（None = 草稿模式）；runtime 注册表在 service 里
         self._active_id: str | None = None
-
-        # 当前选中的模型（输入区模型选择器维护）
-        self._model: Model = default_registry.get_model_by_id(
-            Constants.DEFAULT_MODEL_ID
-        )
-        self._stream_options: StreamOptions = StreamOptions()
+        # 当前选中的模型 id（输入区模型选择器维护；草稿模式下新建会话时使用）
+        self._model_id: str = Constants.DEFAULT_MODEL_ID
 
     # ---------------------------- 布局 ---------------------------- #
     def compose(self) -> ComposeResult:
@@ -76,7 +67,7 @@ class AgentTUI(App):
         # 主布局：左右分栏
         with Horizontal(id="main-layout"):
             # 左侧边栏：对话列表
-            yield Sidebar(self.session_manager, id="sidebar")
+            yield Sidebar(id="sidebar")
             # 右侧主体：会话视图容器 + 输入框
             yield ChatArea(id="chat-area")
 
@@ -86,6 +77,7 @@ class AgentTUI(App):
         self.title = "Agent Harness"
         self.sub_title = "idle"
         self.query_one(Input).focus()
+        self._refresh_sidebar()
         self._refresh_stats(None)
 
     @property
@@ -100,7 +92,7 @@ class AgentTUI(App):
     def _active_runtime(self) -> SessionRuntime | None:
         if self._active_id is None:
             return None
-        return self._runtimes.get(self._active_id)
+        return self.service.get_session(self._active_id)
 
     @property
     def _active_view(self) -> ConversationView | None:
@@ -111,59 +103,44 @@ class AgentTUI(App):
     # ------------------------ 会话管理 ------------------------ #
     async def _new_session(self) -> None:
         """创建并激活一个新会话。"""
-        session_id = self.session_manager.new_session()
+        runtime = self.service.create_session(self._model_id)
+        session_id = runtime.session_id
 
         # 草稿视图存在则改名复用；否则会在 _activate 中新建
         reused_draft = (
             self.chat_area.rename_view(_DRAFT_SESSION_ID, session_id) is not None
         )
 
-        self._runtimes[session_id] = SessionRuntime(
-            session_id,
-            self.session_manager,
-            request_options=ModelRequestOptions(
-                model=self._model, stream_options=self._stream_options
-            ),
-        )
-        self.consume_events(self._runtimes[session_id])
-        # 新会话记住当前选择的模型，切换回该会话时能恢复
-        self.session_manager.update_model(session_id, self._model.id)
-
-        self.sidebar.refresh_sessions()
+        self.consume_events(runtime)
+        self._refresh_sidebar()
         await self._activate(session_id)
 
         if not reused_draft:
             self.notify("已创建新对话", title="新建对话")
 
-    async def _activate(self, session_id: str, history=None) -> None:
-        """激活会话：创建视图（首次）、加载历史、切换显示、同步输入区状态。"""
+    async def _activate(self, session_id: str) -> None:
+        """激活会话：创建视图（首次用 runtime 历史重建）、切换显示、同步输入区状态。"""
+        runtime = self.service.get_session(session_id)
+        if runtime is None:
+            return  # 未打开的会话：不会发生（调用方先 create/open）
+
         chat = self.chat_area
         view = chat.get_view(session_id)
         if view is None:
             view = await chat.create_view(session_id)
-            if history is None:
-                history = load_context_messages(self.session_manager, session_id)
+            history = runtime.history()
             if history:
                 await view.render_history(history)
 
         await chat.show_view(session_id)
         self._active_id = session_id
 
-        # 模型选择器跟随当前会话关联的模型（从会话元数据恢复）
-        meta = self.session_manager.get_index(session_id)
-        model_id = meta.model if meta is not None else Constants.DEFAULT_MODEL_ID
-        model = default_registry.get_model_by_id(model_id)
-        if model is not None:
-            self._model = model
-            self.chat_area.model_select.value = model.id
-            # 确保会话 runtime 使用会话自己的模型（而非选择器之前的值）
-            self._runtimes[session_id].agent.set_model_request_options(
-                ModelRequestOptions(model=model, stream_options=self._stream_options)
-            )
+        # 模型选择器跟随当前会话关联的模型（meta.model 是唯一事实源）
+        self._model_id = runtime.model_id
+        chat.model_select.value = runtime.model_id
 
-        # 输入区状态跟随当前会话的 agent
-        runtime = self._runtimes[session_id]
-        busy = runtime.agent.busy
+        # 输入区状态跟随当前会话的运行状态
+        busy = runtime.is_running
         inp = chat.input
         inp.disabled = busy
         if not busy:
@@ -175,41 +152,28 @@ class AgentTUI(App):
         self.sidebar.highlight_session(session_id)
 
     async def on_sidebar_session_selected(self, event: Sidebar.SessionSelected) -> None:
-        """点击左侧会话列表：使用旧会话（加载历史上下文或恢复流式视图）。"""
+        """点击左侧会话列表：首次打开时构建运行时并载入历史，已打开直接切换。"""
         session_id = event.session_id
-        if session_id not in self._runtimes:
-            # 首次打开旧会话：加载历史消息作为 Agent 上下文并重建渲染
-            messages = load_context_messages(self.session_manager, session_id)
-            self._runtimes[session_id] = SessionRuntime(
-                session_id,
-                self.session_manager,
-                request_options=ModelRequestOptions(
-                    model=self._model, stream_options=self._stream_options
-                ),
-            )
-            self.consume_events(self._runtimes[session_id])
-            await self._activate(session_id, history=messages)
-        else:
-            # 已打开过（含正在流式输出的会话）：直接切换视图
-            await self._activate(session_id)
+        if self.service.get_session(session_id) is None:
+            # 首次打开旧会话：service 在线程里载入历史并构建运行时
+            runtime = await self.service.open_session(session_id)
+            self.consume_events(runtime)
+        await self._activate(session_id)
 
     async def on_sidebar_session_delete_requested(
         self, event: Sidebar.SessionDeleteRequested
     ) -> None:
         """侧边栏删除按钮：删除会话数据、运行时与视图。"""
         session_id = event.session_id
-        runtime = self._runtimes.pop(session_id, None)
-        if runtime is not None and runtime.agent.busy:
-            runtime.agent.stop()
-
         try:
-            self.session_manager.delete_sessions(session_id)
+            # service 内部：运行中先请求停止，再删除会话数据
+            self.service.delete_session(session_id)
         except RuntimeError:
             self.notify(f"删除失败：找不到会话 {session_id}", severity="error")
             return
 
         await self.chat_area.remove_view(session_id)
-        self.sidebar.refresh_sessions()
+        self._refresh_sidebar()
 
         if self._active_id == session_id:
             # 删除的是当前会话：回到草稿模式
@@ -241,40 +205,32 @@ class AgentTUI(App):
         """模型选择器：切换模型，只应用到当前会话并落盘。"""
         if event.select.id != "model-select":
             return
-        model = default_registry.get_model_by_id(str(event.value))
-        if model is None:
-            return
-        self._model = model
+        model_id = str(event.value)
+        # 记住当前选择（草稿模式新建会话时使用）
+        self._model_id = model_id
 
         runtime = self._active_runtime
         if runtime is None:
-            # 草稿模式：仅记住当前选择，新建会话时使用
             return
 
         # 与会话已保存模型一致时是切换会话的同步回显，不重复应用/提示
-        meta = self.session_manager.get_index(runtime.session_id)
-        if meta is not None and meta.model == model.id:
+        if runtime.model_id == model_id:
             return
 
-        runtime.agent.set_model_request_options(
-            ModelRequestOptions(model=model, stream_options=self._stream_options)
-        )
-        self.session_manager.update_model(runtime.session_id, model.id)
-        self._refresh_stats(runtime)
+        model = runtime.set_model(model_id)
+        if model is None:
+            return  # 未知模型 id（防御）：保持现状
         self.notify(f"已切换模型：{model.name}", title="模型")
 
     # ------------------------ 事件消费（每会话一个 worker） ------------------------ #
     @work
     async def consume_events(self, runtime: SessionRuntime) -> None:
-        """常驻 worker：从该会话的总线取事件并渲染。"""
-        while True:
-            event = await runtime.bus.get()
+        """常驻 worker：消费该会话的事件流并渲染。"""
+        async for ev in runtime.events():
             try:
-                await self._dispatch(event, runtime)
+                await self._dispatch(ev, runtime)
             except Exception as exc:  # noqa: BLE001
                 self.log.error(f"dispatch error: {exc!r}")
-            finally:
-                runtime.bus.task_done()
 
     async def _dispatch(self, ev: AgentEvent, runtime: SessionRuntime) -> None:
         view = self.chat_area.get_view(runtime.session_id)
@@ -296,7 +252,7 @@ class AgentTUI(App):
             case AgentEventType.MESSAGE_END:
                 # 首条用户消息后标题已生成并写入索引，立即刷新侧边栏
                 if ev.message.role == "user":
-                    self.sidebar.refresh_sessions()
+                    self._refresh_sidebar()
                     if self._active_id is not None:
                         self.sidebar.highlight_session(self._active_id)
 
@@ -323,13 +279,9 @@ class AgentTUI(App):
                     self.sub_title = "idle"
                     self._refresh_stats(runtime)
                 # 会话标题/预览可能已更新（首条消息设标题）
-                self.sidebar.refresh_sessions()
+                self._refresh_sidebar()
                 if self._active_id is not None:
                     self.sidebar.highlight_session(self._active_id)
-
-
-        if view is not None and is_active:
-            view.scroll_end(animate=False)
 
     # ---------------------------- 交互 ---------------------------- #
     async def on_input_submitted(self, event: Input.Submitted) -> None:
@@ -349,12 +301,12 @@ class AgentTUI(App):
             return
 
         # 运行中 → 点击执行停止
-        if runtime.agent.busy:
+        if runtime.is_running:
             # 先切到「停止中」并禁用，防止重复点击；用单字图标保持按钮尺寸不变
             event.button.label = "…"
             event.button.disabled = True
             try:
-                runtime.agent.stop()
+                runtime.stop()
             except Exception as exc:  # noqa: BLE001
                 self.log.error(f"stop agent failed: {exc!r}")
                 # 停止失败时恢复成运行态
@@ -376,7 +328,7 @@ class AgentTUI(App):
 
         runtime = self._active_runtime
         view = self._active_view
-        if runtime is None or view is None or runtime.agent.busy:
+        if runtime is None or view is None or runtime.is_running:
             return
 
         inp = self.chat_area.input
@@ -391,7 +343,7 @@ class AgentTUI(App):
         self.run_agent(runtime, text)
 
     def _set_running(self, running: bool) -> None:
-        """根据当前会话 agent 状态切换圆形按钮的图标与配色。"""
+        """根据当前会话运行状态切换圆形按钮的图标与配色。"""
         btn = self.chat_area.send_button
         btn.disabled = False
         if running:
@@ -401,17 +353,17 @@ class AgentTUI(App):
             btn.label = "↑"
             btn.variant = "primary"
 
-    def _refresh_stats(self, runtime: SessionRuntime | None) -> None:
-        """从 SessionMeta 读取轮数与 token 用量，刷新底栏（会话元数据是唯一数据源）。"""
-        if runtime is None:
-            self.chat_area.update_stats(UsageStats())
-            return
+    def _refresh_sidebar(self) -> None:
+        """从 service 拉取会话列表，重建侧边栏。"""
+        self.sidebar.refresh_sessions(self.service.list_sessions())
 
-        meta = self.session_manager.get_index(runtime.session_id)
+    def _refresh_stats(self, runtime: SessionRuntime | None) -> None:
+        """从会话元数据读取轮数与 token 用量，刷新底栏（会话元数据是唯一数据源）。"""
+        meta = runtime.meta if runtime is not None else None
         self.chat_area.update_stats(
             UsageStats(
-                turns=meta.total_turns,
-                steps=meta.total_steps,
+                turns=meta.total_turns if meta else 0,
+                steps=meta.total_steps if meta else 0,
                 total_tokens=meta.total_tokens if meta else 0,
                 prompt_tokens=meta.prompt_tokens if meta else 0,
                 completion_tokens=meta.completion_tokens if meta else 0,
@@ -427,7 +379,7 @@ class AgentTUI(App):
 
     @work(group="agent")
     async def run_agent(self, runtime: SessionRuntime, prompt: str) -> None:
-        await runtime.agent.run(prompt)
+        await runtime.send(prompt)
 
     # ---------------------------- 命令 ---------------------------- #
     async def action_clear_log(self) -> None:
