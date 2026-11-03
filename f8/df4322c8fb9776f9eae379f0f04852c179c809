@@ -1,0 +1,150 @@
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.0.8",
+  "base_commit_sha": "f8df4322c8fb9776f9eae379f0f04852c179c809",
+  "prompts": {},
+  "commit_stats": {
+    "git_diff_added_lines": 311,
+    "git_diff_deleted_lines": 52,
+    "ai_additions": 0,
+    "ai_accepted": 0,
+    "BYMC": 303,
+    "mixed_additions": 0,
+    "BYAC": 0,
+    "BYRC": 0,
+    "per_file": {
+      "src/agent/runtime/agent_loop.py": {
+        "BYMC": [
+          "33",
+          "96-100",
+          "106",
+          "109-117"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      },
+      "src/agent/types.py": {
+        "BYMC": [
+          "98-99"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      },
+      "src/harness/agent.py": {
+        "BYMC": [
+          "13-18",
+          "34-35",
+          "41-42",
+          "45"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      },
+      "src/harness/session/runtime.py": {
+        "BYMC": [
+          "29",
+          "57-58",
+          "65",
+          "78-83"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      },
+      "src/harness/tools/executor.py": {
+        "BYMC": [
+          "1-2",
+          "6-13",
+          "18",
+          "20-22",
+          "24-26",
+          "31-38",
+          "41-56",
+          "58-65",
+          "77",
+          "79",
+          "88-97"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      },
+      "src/harness/tools/permission.py": {
+        "BYMC": [
+          "1",
+          "53",
+          "144",
+          "152-154",
+          "165",
+          "170-172",
+          "183-213",
+          "226",
+          "239-240",
+          "246-250",
+          "295"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      },
+      "src/tui/approval_bar.py": {
+        "BYMC": [
+          "1-41"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      },
+      "src/tui/chat_area.py": {
+        "BYMC": [
+          "43",
+          "309-313",
+          "358-363"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      },
+      "src/tui/cli.py": {
+        "BYMC": [
+          "35",
+          "46-49",
+          "64-65",
+          "270-273",
+          "278-281",
+          "293-294",
+          "304-309",
+          "378-382"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      },
+      "src/tui/css/approval_bar.tcss": {
+        "BYMC": [
+          "1-48"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      },
+      "src/tui/css/chat_area.tcss": {
+        "BYMC": [
+          "323-325"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      },
+      "src/tui/sidebar.py": {
+        "BYMC": [
+          "37",
+          "39",
+          "47-51",
+          "54",
+          "66-68",
+          "71-72",
+          "74-76",
+          "83-87"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      }
+    }
+  },
+  "commit_timestamp": 1793700182,
+  "requirement_id": ""
+}
