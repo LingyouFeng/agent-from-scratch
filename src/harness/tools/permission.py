@@ -1,3 +1,4 @@
+import asyncio
 import glob
 import re
 from abc import abstractmethod, ABC
@@ -49,7 +50,7 @@ class WorkspaceScope:
     PATH_ARGUMENTS = {
         "read_file": "file_path",
         "write_file": "file_path",
-        "edit_file": "file_path",
+        "edit": "file_path",
         "glob": "pattern",
         "ls": "path"
     }
@@ -140,7 +141,7 @@ class PermissionDecision:
 
 
 class Approver(ABC):
-    def decide(self, result: PermissionResult) -> PermissionDecision:
+    async def decide(self, result: PermissionResult) -> PermissionDecision:
         """Resolve ASK through one injected UI boundary; ALLOW/DENY never prompt."""
 
         if result.permission is ToolPermission.ALLOW:
@@ -148,8 +149,9 @@ class Approver(ABC):
         if result.permission is ToolPermission.DENY:
             return PermissionDecision(result, False, ApprovalStatus.DENIED)
         try:
-            approved = bool(self.approve(result))
-        except KeyboardInterrupt:
+            approved = bool(await self.approve(result))
+        except (asyncio.CancelledError, KeyboardInterrupt):
+            # stop 打断 / Ctrl+C：fail-closed，不执行
             return PermissionDecision(result, False, ApprovalStatus.CANCELLED)
         except Exception:
             # A closed or failed approval UI must fail closed rather than execute.
@@ -160,12 +162,14 @@ class Approver(ABC):
         )
 
     @abstractmethod
-    def approve(self, result: PermissionResult) -> bool:
+    async def approve(self, result: PermissionResult) -> bool:
         ...
 
 
 class ConsoleApprover(Approver):
-    def approve(self, result: PermissionResult) -> bool:
+    """无 UI 场景（测试/开发）的审批后门：ASK 一律放行。"""
+
+    async def approve(self, result: PermissionResult) -> bool:
         return True
         # """The CLI's approval UI; replace this callback in desktop or test harnesses."""
         # request = result.request
@@ -174,6 +178,39 @@ class ConsoleApprover(Approver):
         # print(f"   Tool: {request.name}")
         # print(f"   Input: {json.dumps(request.arguments, ensure_ascii=False, default=str)[:300]}")
         # return input("   Allow? [y/N] ").strip().lower() == "y"
+
+
+class ApprovalCoordinator(Approver):
+    """TUI 审批协调器：登记 future 挂起等待 UI 回答。
+
+    审批通知不走这里——TOOL_EXECUTION_START(pending_approval=True) 天然承担
+    （UI 据此渲染审批按钮），这里只管"等"和"回答的投递"。
+    """
+
+    def __init__(self) -> None:
+        # tc_id -> future[allowed]；同一时刻每个会话至多一个待审批工具
+        self._pending: dict[str, asyncio.Future[bool]] = {}
+
+    async def approve(self, result: PermissionResult) -> bool:
+        fut: asyncio.Future[bool] = asyncio.get_running_loop().create_future()
+        self._pending[result.request.id] = fut
+        try:
+            return await fut
+        finally:
+            self._pending.pop(result.request.id, None)
+
+    def resolve(self, tc_id: str, allowed: bool) -> None:
+        """UI 回答审批：唤醒挂起的工具执行。"""
+        fut = self._pending.get(tc_id)
+        if fut is not None and not fut.done():
+            fut.set_result(allowed)
+
+    def cancel_all(self) -> None:
+        """打断所有挂起的审批（stop 时调用）：future 被 cancel → decide fail-closed。"""
+        for fut in self._pending.values():
+            if not fut.done():
+                fut.cancel()
+        self._pending.clear()
 
 
 # =====================================================================
@@ -186,7 +223,7 @@ class PermissionPolicy:
         self.workspace = workspace
         self.approver = approver
 
-    def _dispatch(self, tc: ToolRequest) -> PermissionResult | None:
+    def _dispatch(self, tc: ToolRequest) -> PermissionResult:
         for rule in self.rules:
             result = rule.match(tc, self.workspace)
             if result is not None:
@@ -199,16 +236,18 @@ class PermissionPolicy:
             reason="默认拒绝",
         )
 
-    def pipeline(self, toolcall_id: str, tool_name: str, tool_args: object) -> PermissionDecision:
+    def check(self, toolcall_id: str, tool_name: str, tool_args: object) -> PermissionResult:
+        """规则匹配（纯同步，不等待用户）：返回 allow/ask/deny 及原因。"""
         request = ToolRequest(
             id=toolcall_id,
             name=tool_name,
             arguments=tool_args,
         )
-        # 根据各个规则，判断工具权限为 allow/deny/ask
-        permission_result = self._dispatch(request)
-        # 把工具权限结果给审批者，得到审批决策结果
-        return self.approver.decide(permission_result)
+        return self._dispatch(request)
+
+    async def authorize(self, result: PermissionResult) -> PermissionDecision:
+        """审批决策：ASK 经 approver 等待用户回答，ALLOW/DENY 秒回。"""
+        return await self.approver.decide(result)
 
     def _build_rules(self) -> tuple[PermissionRule, ...]:
         return (
@@ -253,7 +292,7 @@ class PermissionPolicy:
 
 PATH_TOOLS = frozenset(WorkspaceScope.PATH_ARGUMENTS)
 READ_PATH_TOOLS = frozenset({"read_file", "glob", "ls"})
-WRITE_PATH_TOOLS = frozenset({"write_file", "edit_file"})
+WRITE_PATH_TOOLS = frozenset({"write_file", "edit"})
 SESSION_TOOLS = frozenset({"todo", "load_skill"})
 HARD_DENY_PATTERNS = (
     re.compile(r"\bsudo\b", re.IGNORECASE),

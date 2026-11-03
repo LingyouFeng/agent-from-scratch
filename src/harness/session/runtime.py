@@ -26,6 +26,7 @@ from harness.agent import Agent
 from harness.event_bus import EventBus
 from harness.session.session import Session
 from harness.session.session_manager import SessionManager, SessionMeta
+from harness.tools.permission import ApprovalCoordinator
 
 
 def _resolve_model(model_id: str) -> Model | None:
@@ -53,12 +54,15 @@ class SessionRuntime:
         self._history = messages
 
         self._bus = EventBus()
+        # 审批协调器：ASK 工具挂起等 UI 回答；stop 时取消全部（fail-closed）
+        self._approvals = ApprovalCoordinator()
         self._agent = Agent(
             self._bus,
             list(self._history),
             ModelRequestOptions(
                 model=self._load_model(), stream_options=StreamOptions()
             ),
+            approver=self._approvals,
         )
         # Session 订阅总线负责落盘；总线持有其 handler 引用，不会被 GC
         Session(self._bus, session_id, session_manager)
@@ -71,6 +75,12 @@ class SessionRuntime:
     def stop(self) -> None:
         """请求停止当前运行，不强行取消运行任务。"""
         self._agent.stop()
+        # 打断挂起的审批（future cancel → decide fail-closed 拒绝该工具）
+        self._approvals.cancel_all()
+
+    def approve_tool(self, tc_id: str, allowed: bool) -> None:
+        """UI 审批回答：唤醒挂起的工具执行。"""
+        self._approvals.resolve(tc_id, allowed)
 
     def set_model(self, model_id: str) -> Model | None:
         """切换会话模型：单点更新 Agent 请求选项并落盘 meta，返回生效的模型。"""

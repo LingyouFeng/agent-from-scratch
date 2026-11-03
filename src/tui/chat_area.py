@@ -40,6 +40,7 @@ from ai.types import (
     UserMessage,
 )
 from tui.usage import UsageStats, format_tokens
+from tui.approval_bar import ApprovalBar
 from tui.usage_detail import UsagePopup
 from util.text_util import _is_non_text, _safe_body
 
@@ -305,10 +306,11 @@ class ConversationView(VerticalScroll):
         args_visual = _safe_body(ev.arguments, empty_hint="（无参数）")
 
         # 使用 Vertical 容器，上方放参数，下方留给结果
-        body_container = Vertical(
-            Static(args_visual, classes="tool-args-body"),
-            classes="tool-body-container",
-        )
+        children = [Static(args_visual, classes="tool-args-body")]
+        # 待审批工具：参数下方挂审批条（END 到达时移除）
+        if ev.pending_approval:
+            children.append(ApprovalBar(self.session_id, ev.tc_id))
+        body_container = Vertical(*children, classes="tool-body-container")
 
         collapsible = Collapsible(
             body_container,
@@ -352,6 +354,13 @@ class ConversationView(VerticalScroll):
             # 2. 更新外框样式（移除运行中，加上成功/失败）
             collapsible.remove_class("tool-exec-running")
             collapsible.add_class(cls)
+
+            # 3. 移除审批条（若还挂着）：审批已结束，结果即将显示
+            try:
+                await collapsible.query_one(ApprovalBar).remove()
+            except Exception:
+                # 无审批条 / 视图被 clear 时忽略
+                pass
 
             try:
                 container = collapsible.query_one(".tool-body-container", Vertical)

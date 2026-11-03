@@ -320,6 +320,9 @@ Collapsible.tool-exec-fail {
     background: transparent; /* 关键：内部透明 */
     color: $text;
     margin: 0;
+    /* 限高滚动：长命令/长输出不再把工具卡片撑满整个屏幕 */
+    max-height: 10;
+    overflow-y: auto;
 }
 .tool-body-container {
     height: auto;

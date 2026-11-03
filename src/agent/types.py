@@ -95,6 +95,8 @@ class AgentToolExecutionStartEvent:
     tc_id: str
     tool_name: str
     arguments: str
+    # True 时 UI 渲染审批按钮，agent 在 authorize 阶段挂起等用户回答
+    pending_approval: bool = False
 
 
 @dataclass(frozen=True)

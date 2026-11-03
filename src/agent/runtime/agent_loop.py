@@ -30,6 +30,7 @@ from ai.types import (
 )
 from ai.types import AssistantMessageEventType
 from harness.tools.executor import ToolExecutor
+from harness.tools.permission import ToolPermission
 from util.time_util import get_timestamp_ms
 
 
@@ -92,17 +93,28 @@ class AgentLoop:
                     toolcall = event.partial.content[event.content_index]
                     tool_calls.append(toolcall)
 
+                    # 权限快检（纯同步，不等待用户）：
+                    # 决定 START 是否声明需要审批
+                    pre = self._tool_executor.preflight(
+                        toolcall.id, toolcall.name, toolcall.arguments
+                    )
                     await self._emit(
                         AgentToolExecutionStartEvent(
                             tc_id=toolcall.id,
                             tool_name=toolcall.name,
                             arguments=json.dumps(toolcall.arguments),
+                            pending_approval=(pre.permission is ToolPermission.ASK),
                         )
                     )
-                    is_success, tool_result = await asyncio.to_thread(
-                        self._tool_executor.execute,
-                        toolcall.id, toolcall.name, toolcall.arguments
-                    )
+                    # 审批决策：ASK 时挂起等待用户回答（事件循环空闲，UI 可交互）
+                    decision = await self._tool_executor.authorize(pre)
+                    if decision.allowed:
+                        is_success, tool_result = await self._tool_executor.perform(
+                            toolcall.id, toolcall.name, toolcall.arguments
+                        )
+                    else:
+                        is_success = False
+                        tool_result = ToolExecutor.refusal_text(decision)
                     await self._emit(
                         AgentToolExecutionEndEvent(
                             tc_id=toolcall.id,

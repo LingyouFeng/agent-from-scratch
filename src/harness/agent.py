@@ -10,7 +10,12 @@ from ai.types import Context, Message, TextContent, UserMessage
 from harness.event_bus import EventBus
 from harness.skills import Skills
 from harness.tools.executor import ToolExecutor
-from harness.tools.permission import PermissionPolicy, WorkspaceScope
+from harness.tools.permission import (
+    Approver,
+    ConsoleApprover,
+    PermissionPolicy,
+    WorkspaceScope,
+)
 from harness.tools.registry import ToolRegistry
 from util.time_util import get_timestamp_ms
 
@@ -26,15 +31,18 @@ SYSTEM_PROMPT = (
 
 class Agent:
     def __init__(
-            self, bus: EventBus, messages: list[Message], options: ModelRequestOptions
+            self, bus: EventBus, messages: list[Message], options: ModelRequestOptions,
+            approver: Approver | None = None,
     ) -> None:
         self.bus = bus
         self._messages = messages
         self.busy = False
         self._tool_registry = ToolRegistry()
+        # 审批者可注入：TUI 注入 ApprovalCoordinator（ASK 时挂起等用户回答），
+        # 默认 ConsoleApprover（无 UI 后门，ASK 一律放行）
         self._tool_executor = ToolExecutor(
             self._tool_registry,
-            PermissionPolicy(WorkspaceScope(WORKDIR)),
+            PermissionPolicy(WorkspaceScope(WORKDIR), approver or ConsoleApprover()),
             HookManager(),
         )
         self._model = options.model

@@ -1,0 +1,48 @@
+/* ====== 审批操作条（ApprovalBar，见 approval_bar.py） ====== */
+ApprovalBar {
+    height: auto;
+    margin-top: 1;
+    padding: 0 1;
+    border-left: thick $warning;
+}
+
+ApprovalBar .approval-hint {
+    width: auto;            /* Static 默认 1fr 会把按钮挤出可视区，必须收缩 */
+    height: 3;
+    padding: 0 1;
+    color: $warning;
+    content-align: center middle;
+}
+
+ApprovalBar Button {
+    height: 3;
+    min-width: 10;
+    padding: 0;
+    margin-left: 1;
+    background: transparent;
+    content-align: center middle;
+}
+
+ApprovalBar .approval-allow-btn {
+    border: round $success;
+    color: $success;
+}
+
+ApprovalBar .approval-allow-btn:hover {
+    background: $success;
+    color: $text;
+}
+
+ApprovalBar .approval-deny-btn {
+    border: round $error;
+    color: $error;
+}
+
+ApprovalBar .approval-deny-btn:hover {
+    background: $error;
+    color: $text;
+}
+
+ApprovalBar Button:focus {
+    text-style: bold;
+}

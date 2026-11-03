@@ -34,9 +34,9 @@ class Sidebar(Vertical):
 
     def __init__(self, **kwargs) -> None:
         super().__init__(**kwargs)
-        # 上次渲染的数据指纹（id/title/preview）：数据没变就不重建列表，
+        # 上次渲染的数据指纹（id/title/preview/待审批）：数据没变就不重建列表，
         # 非首轮消息触发的刷新是 no-op
-        self._rendered_fp: list[tuple[str, str, str]] | None = None
+        self._rendered_fp: list[tuple[str, str, str, bool]] | None = None
 
     # ---------------------------- 布局 ---------------------------- #
     def compose(self):
@@ -44,10 +44,14 @@ class Sidebar(Vertical):
         yield ListView(id="chat-list")
 
     # ---------------------------- 会话列表 ---------------------------- #
-    def _make_item(self, session_id: str, title: str, preview: str = "") -> ListItem:
+    def _make_item(
+        self, session_id: str, title: str, preview: str = "", pending: bool = False
+    ) -> ListItem:
+        # 待审批的会话加 ⏳ 前缀，提示用户切过去处理
+        display_title = f"⏳ {title}" if pending else title
         # 左侧：标题 + 预览
         content = Vertical(
-            Static(title, classes="chat-title"),
+            Static(display_title, classes="chat-title"),
             Static(preview, classes="chat-preview"),
             classes="chat-item-content",
         )
@@ -59,20 +63,28 @@ class Sidebar(Vertical):
         item.chat_title = title
         return item
 
-    def refresh_sessions(self, sessions: list[SessionItem]) -> None:
+    def refresh_sessions(
+        self, sessions: list[SessionItem], pending_ids: frozenset[str] = frozenset()
+    ) -> None:
         """用给定数据重建会话列表（AgentTUI 喂数据：新建/标题更新后调用）。
 
-        数据指纹（id/title/preview）无变化时 no-op：
-        会话真正展示的只有这三个字段，updated_at 等元数据变化不影响显示。
+        数据指纹（id/title/preview/待审批）无变化时 no-op：
+        会话真正展示的只有这几个字段，updated_at 等元数据变化不影响显示。
         """
-        fp = [(s.id, s.title, s.preview) for s in sessions]
+        fp = [
+            (s.id, s.title, s.preview, s.id in pending_ids) for s in sessions
+        ]
         if fp == self._rendered_fp:
             return
         self._rendered_fp = fp
         chat_list = self.query_one("#chat-list", ListView)
         chat_list.clear()
         for chat in sessions:
-            chat_list.append(self._make_item(chat.id, chat.title, chat.preview))
+            chat_list.append(
+                self._make_item(
+                    chat.id, chat.title, chat.preview, chat.id in pending_ids
+                )
+            )
 
     def highlight_session(self, session_id: str) -> None:
         """高亮当前激活的会话项。"""

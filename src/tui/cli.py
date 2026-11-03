@@ -32,6 +32,7 @@ from agent.constant import Constants
 from agent.types import AgentEvent, AgentEventType
 from harness.session.runtime import SessionRuntime
 from harness.session.service import SessionService
+from tui.approval_bar import ApprovalBar
 from tui.chat_area import ChatArea, ConversationView, TokenSummary
 from tui.sidebar import Sidebar
 from tui.usage import UsageStats
@@ -42,9 +43,10 @@ _DRAFT_SESSION_ID = "__draft__"
 class AgentTUI(App):
     # Textual 的 CSS_PATH 只在 App/Screen 上生效，组件样式文件统一在这里加载
     CSS_PATH = [
-        Path(__file__).with_name("styles.tcss"),  # App 主布局 + 状态栏
-        Path(__file__).with_name("sidebar.tcss"),  # Sidebar 组件
-        Path(__file__).with_name("chat_area.tcss"),  # ChatArea / ConversationView 组件
+        Path(__file__).parent / "css" / "styles.tcss",  # App 主布局 + 状态栏
+        Path(__file__).parent / "css" / "sidebar.tcss",  # Sidebar 组件
+        Path(__file__).parent / "css" / "chat_area.tcss",  # ChatArea / ConversationView 组件
+        Path(__file__).parent / "css" / "approval_bar.tcss",  # ApprovalBar 审批操作条
     ]
 
     BINDINGS = [
@@ -59,6 +61,8 @@ class AgentTUI(App):
         self._active_id: str | None = None
         # 当前选中的模型 id（输入区模型选择器维护；草稿模式下新建会话时使用）
         self._model_id: str = Constants.DEFAULT_MODEL_ID
+        # 有待审批工具的会话集合（驱动 sidebar ⏳ 徽章；串行执行时每会话至多一个）
+        self._pending_approval: set[str] = set()
 
     # ---------------------------- 布局 ---------------------------- #
     def compose(self) -> ComposeResult:
@@ -263,10 +267,18 @@ class AgentTUI(App):
             case AgentEventType.TOOL_EXECUTION_START:
                 if view is not None:
                     await view.handle_tool_execution_start(ev)
+                if ev.pending_approval:
+                    # 该会话有工具在等审批：sidebar 加 ⏳ 徽章
+                    self._pending_approval.add(runtime.session_id)
+                    self._refresh_sidebar()
 
             case AgentEventType.TOOL_EXECUTION_END:
                 if view is not None:
                     await view.handle_tool_execution_end(ev)
+                # 待审批工具已收尾（每会话串行执行，至多一个）：清除徽章
+                if runtime.session_id in self._pending_approval:
+                    self._pending_approval.discard(runtime.session_id)
+                    self._refresh_sidebar()
 
             case AgentEventType.AGENT_END:
                 if view is not None:
@@ -278,6 +290,8 @@ class AgentTUI(App):
                     self._set_running(False)
                     self.sub_title = "idle"
                     self._refresh_stats(runtime)
+                # 防御：运行结束不应残留待审批状态
+                self._pending_approval.discard(runtime.session_id)
                 # 会话标题/预览可能已更新（首条消息设标题）
                 self._refresh_sidebar()
                 if self._active_id is not None:
@@ -286,6 +300,13 @@ class AgentTUI(App):
     # ---------------------------- 交互 ---------------------------- #
     async def on_input_submitted(self, event: Input.Submitted) -> None:
         await self._submit_prompt(event.value)
+
+    async def on_approval_bar_responded(self, event: ApprovalBar.Responded) -> None:
+        """审批按钮：把用户的选择交给对应会话的 runtime，唤醒挂起的工具执行。"""
+        runtime = self.service.get_session(event.session_id)
+        if runtime is None:
+            return
+        runtime.approve_tool(event.tc_id, event.allowed)
 
     async def on_button_pressed(self, event: Button.Pressed) -> None:
         # 新建对话：进入草稿模式，不立即创建 session
@@ -354,8 +375,11 @@ class AgentTUI(App):
             btn.variant = "primary"
 
     def _refresh_sidebar(self) -> None:
-        """从 service 拉取会话列表，重建侧边栏。"""
-        self.sidebar.refresh_sessions(self.service.list_sessions())
+        """从 service 拉取会话列表，重建侧边栏（含待审批徽章）。"""
+        self.sidebar.refresh_sessions(
+            self.service.list_sessions(),
+            pending_ids=frozenset(self._pending_approval),
+        )
 
     def _refresh_stats(self, runtime: SessionRuntime | None) -> None:
         """从会话元数据读取轮数与 token 用量，刷新底栏（会话元数据是唯一数据源）。"""
