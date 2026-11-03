@@ -1,0 +1,136 @@
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.0.8",
+  "base_commit_sha": "20b2619387be9b9061e2c0efb1261f459f687f5b",
+  "prompts": {},
+  "commit_stats": {
+    "git_diff_added_lines": 322,
+    "git_diff_deleted_lines": 190,
+    "ai_additions": 0,
+    "ai_accepted": 0,
+    "BYMC": 320,
+    "mixed_additions": 0,
+    "BYAC": 0,
+    "BYRC": 0,
+    "per_file": {
+      "src/harness/session/runtime.py": {
+        "BYMC": [
+          "5-13",
+          "18-24",
+          "28",
+          "31-36",
+          "40",
+          "46",
+          "49-61",
+          "64-117"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      },
+      "src/harness/session/service.py": {
+        "BYMC": [
+          "1-84"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      },
+      "src/harness/session/session.py": {
+        "BYMC": [
+          "1-3",
+          "37-38",
+          "41-53",
+          "66-75"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      },
+      "src/harness/session/session_manager.py": {
+        "BYMC": [
+          "2",
+          "44-45",
+          "50-52",
+          "65-74",
+          "167",
+          "176"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      },
+      "src/main.py": {
+        "BYMC": [
+          "2",
+          "9-11"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      },
+      "src/tui/chat_area.py": {
+        "BYMC": [
+          "195",
+          "234",
+          "251-252",
+          "256",
+          "261-265"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      },
+      "src/tui/cli.py": {
+        "BYMC": [
+          "5",
+          "12-14",
+          "16",
+          "19-20",
+          "32-34",
+          "55",
+          "57-58",
+          "60-61",
+          "70",
+          "80",
+          "95",
+          "106-107",
+          "114-115",
+          "121-126",
+          "131",
+          "138-140",
+          "142-143",
+          "155",
+          "157-161",
+          "169-170",
+          "176",
+          "208-210",
+          "217",
+          "220-222",
+          "228-229",
+          "231",
+          "255",
+          "282",
+          "304",
+          "309",
+          "331",
+          "346",
+          "356-358",
+          "360-362",
+          "365-366",
+          "382"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      },
+      "src/tui/sidebar.py": {
+        "BYMC": [
+          "14",
+          "35",
+          "37-39",
+          "62-71",
+          "74"
+        ],
+        "BYAC": [],
+        "BYRC": []
+      }
+    }
+  },
+  "commit_timestamp": 1793687017,
+  "requirement_id": ""
+}
