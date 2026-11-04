@@ -11,30 +11,14 @@ from __future__ import annotations
 
 import asyncio
 
-from ai.types import Message, TextContent, UserMessage
+from ai.types import Message
 from harness.session.runtime import SessionRuntime
 from harness.session.session_manager import SessionItem, SessionManager
 
 
-def _is_status_message(msg: Message) -> bool:
-    """判断是否为运行时注入的状态栏消息（不应进入上下文/渲染）。"""
-    if not isinstance(msg, UserMessage):
-        return False
-    if isinstance(msg.content, str):
-        return msg.content.startswith("<status>")
-    return any(
-        isinstance(c, TextContent) and c.text.startswith("<status>")
-        for c in msg.content
-    )
-
-
 def _load_history(session_manager: SessionManager, session_id: str) -> list[Message]:
     """加载历史消息，过滤掉注入的状态栏消息（过滤只在这里发生一次）。"""
-    return [
-        m
-        for m in session_manager.load_messages(session_id)
-        if not _is_status_message(m)
-    ]
+    return [m for m in session_manager.load_messages(session_id)]
 
 
 class SessionService:

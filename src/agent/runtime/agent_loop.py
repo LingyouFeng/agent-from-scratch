@@ -58,7 +58,7 @@ class AgentLoop:
         await self._emit(AgentMessageEndEvent(prompt))
         is_first_turn = True
 
-        for _ in range(Constants.MAX_TURN):
+        while True:
             if stop_event.is_set():
                 break
             api = get_api_by_api(model.api)
