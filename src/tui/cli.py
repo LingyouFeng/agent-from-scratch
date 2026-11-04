@@ -259,6 +259,9 @@ class AgentTUI(App):
                     self._refresh_sidebar()
                     if self._active_id is not None:
                         self.sidebar.highlight_session(self._active_id)
+                elif view is not None:
+                    # 登记完整 assistant 消息，供历史分页重渲染
+                    view.record_message(ev.message)
 
             case AgentEventType.MESSAGE_UPDATE:
                 if view is not None:
@@ -282,6 +285,7 @@ class AgentTUI(App):
 
             case AgentEventType.AGENT_END:
                 if view is not None:
+                    view.discard_pending_tool_results()
                     await view.finalize_stream()  # 把最后一批 token 刷出去
                 if is_active:
                     inp = self.chat_area.input

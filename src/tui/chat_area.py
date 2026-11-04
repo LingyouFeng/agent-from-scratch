@@ -8,13 +8,15 @@ ConversationView：一个会话一份，承载全部消息渲染逻辑（流式 
 
 流式与历史重建共用同一套渲染函数：
     流式：handle_message_event / handle_tool_execution_*（delta 增量）
-    重建：render_history -> 把存储的 AgentMessage 完整内容当作一次 delta 重放
+    重建：render_history -> 按页把存储的 AgentMessage 当作 delta 重放，
+         只挂载最后一页，顶部按钮按需加载更早的页
 """
 
 from __future__ import annotations
 
 import datetime
 import json
+from dataclasses import dataclass
 
 from rich.markup import escape
 from textual import events
@@ -43,6 +45,21 @@ from tui.usage import UsageStats, format_tokens
 from tui.approval_bar import ApprovalBar
 from tui.usage_detail import UsagePopup
 from util.text_util import _is_non_text, _safe_body
+from util.time_util import get_timestamp_ms
+
+# 每页消息数：控制单次布局的 widget 数量，避免长会话打开时 O(n²) 卡顿
+HISTORY_PAGE_MESSAGES = 40
+# 同时挂载的页数上限：超出后卸载最旧的页，移出屏幕的内容仍保留在 _history 里
+MAX_MOUNTED_PAGES = 5
+
+
+@dataclass
+class _Page:
+    """一页消息：widget 容器 + 它在 _history 中的消息区间 [start, end)。"""
+
+    widget: Vertical
+    start: int
+    end: int
 
 
 class ConversationView(VerticalScroll):
@@ -59,6 +76,25 @@ class ConversationView(VerticalScroll):
         self._stream_md: Markdown | None = None
         self._stream_buf: list[str] = []
         self._stream_dirty = False
+        # 已交给 Markdown 的字符数 + 上一次增量解析任务（背压用）
+        self._stream_sent = 0
+        self._stream_pending = None
+        self._stream_error = False
+        # 历史重建时抑制每条消息的滚动，避免 N 次 scroll_end
+        self._suppress_scroll = False
+        # 用户滚上去看历史时不再自动拉回底部；回到底部后恢复跟随
+        self._follow_tail = True
+
+        # 分页状态：_history 是视图侧完整消息序列（历史 + 本会话新消息）
+        self._history: list[AgentMessage] = []
+        self._pages: list[_Page] = []
+        self._current_page: _Page | None = None
+        # 渲染目标：历史回放时指向页容器，流式时指向当前页
+        self._mount_target: Vertical | None = None
+        self._rendering_history = False
+        # 工具结果先暂存，等 assistant MESSAGE_END 到达后按
+        # “assistant(tool_calls) -> toolResult...” 的顺序补进 _history
+        self._pending_tool_results: list[ToolResultMessage] = []
 
         # 流式 thinking 状态
         self._thinking_static: Static | None = None
@@ -72,6 +108,11 @@ class ConversationView(VerticalScroll):
     def on_mount(self) -> None:
         # 20fps 节流刷新 Markdown / Static，避免每个 token 都重排
         self.set_interval(1 / 20, self._flush_stream)
+
+    async def _mount(self, widget, **kwargs) -> None:
+        """统一挂载入口：历史分页时把消息挂到页容器而不是视图根。"""
+        target = self._mount_target if self._mount_target is not None else self
+        await target.mount(widget, **kwargs)
 
     # ------------------------ 流式事件入口 ------------------------ #
     async def handle_message_event(self, ev: AgentMessageUpdateEvent) -> None:
@@ -100,18 +141,81 @@ class ConversationView(VerticalScroll):
         await self._on_tool_execution_start(ev)
 
     async def handle_tool_execution_end(self, ev: AgentToolExecutionEndEvent) -> None:
+        self._record_tool_result(ev)
         await self._on_tool_execution_end(ev)
 
     # ------------------------ 历史重建入口 ------------------------ #
     async def render_history(self, messages: list[AgentMessage]) -> None:
-        """根据存储的消息重建对话记录。
+        """按页重建历史：只挂载最后一页，更早的页按需加载。
 
-        核心思路：把每条消息的完整内容当作一次 delta，
-        重放流式渲染函数，保证与流式输出最终效果完全一致。
+        长会话把所有消息一次性 mount 进 VerticalScroll 会触发
+        O(n²) 的布局开销；分页后单次只布局一页。
         """
         await self.clear()
-        toolcall_args: dict[str, str] = {}
+        self._history = list(messages)
+        self._follow_tail = True
+        if not self._history:
+            return
 
+        start = self._initial_page_start()
+        page = await self._render_page(start, len(self._history))
+        self._pages.append(_Page(page, start, len(self._history)))
+        self._current_page = self._pages[-1]
+        await self._refresh_load_button()
+        self._scroll_to_end()
+
+    def _initial_page_start(self) -> int:
+        total = len(self._history)
+        if total <= HISTORY_PAGE_MESSAGES:
+            return 0
+        candidate = total - HISTORY_PAGE_MESSAGES
+        # 尽量从用户消息开始，保证 tool_calls 与 tool_result 不被拆开
+        for i in range(candidate, total):
+            message = self._history[i]
+            if isinstance(message, UserMessage):
+                return i
+        while candidate > 0 and isinstance(
+            self._history[candidate], ToolResultMessage
+        ):
+            candidate -= 1
+        return candidate
+
+    def _earlier_page_start(self, end: int) -> int:
+        candidate = max(0, end - HISTORY_PAGE_MESSAGES)
+        for i in range(candidate, -1, -1):
+            message = self._history[i]
+            if isinstance(message, UserMessage):
+                candidate = i
+                break
+        while candidate > 0 and isinstance(
+            self._history[candidate], ToolResultMessage
+        ):
+            candidate -= 1
+        return candidate
+
+    async def _render_page(
+        self, start: int, end: int, before=None
+    ) -> Vertical:
+        """把 _history[start:end] 渲染进一个页容器；返回该容器。"""
+        page = Vertical(classes="message-page")
+        if before is None:
+            await self.mount(page)
+        else:
+            await self.mount(page, before=before)
+
+        self._rendering_history = True
+        self._mount_target = page
+        self._suppress_scroll = True
+        try:
+            await self._replay(self._history[start:end])
+        finally:
+            self._rendering_history = False
+            self._mount_target = None
+            self._suppress_scroll = False
+        return page
+
+    async def _replay(self, messages: list[AgentMessage]) -> None:
+        toolcall_args: dict[str, str] = {}
         for msg in messages:
             if isinstance(msg, UserMessage):
                 text = self._extract_user_text(msg)
@@ -145,13 +249,122 @@ class ConversationView(VerticalScroll):
                     AgentToolExecutionEndEvent(
                         tc_id=msg.tool_call_id,
                         tool_name=msg.tool_name,
-                        arguments=toolcall_args[msg.tool_call_id],
+                        arguments=toolcall_args.get(msg.tool_call_id, "{}"),
                         tool_result=result,
                         is_success=msg.is_success,
                     )
                 )
 
-        self.scroll_end(animate=False)
+    # ---------------------------- 历史分页 ---------------------------- #
+    async def _refresh_load_button(self) -> None:
+        start = self._pages[0].start if self._pages else 0
+        existing = next(iter(self.query("#load-earlier")), None)
+        if start <= 0:
+            if existing is not None:
+                await existing.remove()
+            return
+        label = f"↑ 加载更早消息（还有 {start} 条）"
+        if existing is not None:
+            existing.label = label
+            existing.disabled = False
+            return
+        button = Button(label, id="load-earlier", classes="load-earlier")
+        if self._pages:
+            await self.mount(button, before=self._pages[0].widget)
+        else:
+            await self.mount(button)
+
+    async def _load_earlier(self) -> None:
+        if not self._pages:
+            return
+        end = self._pages[0].start
+        if end <= 0:
+            return
+        button = next(iter(self.query("#load-earlier")), None)
+        if button is not None:
+            button.disabled = True
+            button.label = "加载中…"
+
+        start = self._earlier_page_start(end)
+        if start >= end:
+            await self._refresh_load_button()
+            return
+        self._follow_tail = False
+        page = await self._render_page(start, end, before=self._pages[0].widget)
+        self._pages.insert(0, _Page(page, start, end))
+        await self._refresh_load_button()
+        self.call_after_refresh(
+            lambda: self.scroll_to_widget(page, animate=False, top=True)
+        )
+
+    async def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id != "load-earlier":
+            return
+        event.stop()
+        await self._load_earlier()
+
+    # ---------------------------- 本会话消息记录 ---------------------------- #
+    async def _ensure_live_page(self) -> None:
+        """流式消息挂到当前页；当前页满一页后为用户新消息另起一页。"""
+        current = self._current_page
+        if (
+            current is not None
+            and len(self._history) - current.start <= HISTORY_PAGE_MESSAGES
+        ):
+            current.end = len(self._history)
+            self._mount_target = current.widget
+            return
+
+        index = max(len(self._history) - 1, 0)
+        if current is not None:
+            current.end = index
+        page = Vertical(classes="message-page")
+        await self.mount(page)
+        entry = _Page(page, index, len(self._history))
+        self._pages.append(entry)
+        self._current_page = entry
+        self._mount_target = page
+        await self._cap_pages()
+
+    async def _cap_pages(self) -> None:
+        """只保留最近若干页；被卸载的页仍在 _history 中，可通过按钮重新加载。"""
+        if self._rendering_history:
+            return
+        while len(self._pages) > MAX_MOUNTED_PAGES:
+            oldest = self._pages[0]
+            if oldest is self._current_page:
+                break
+            self._pages.pop(0)
+            await oldest.widget.remove()
+        await self._refresh_load_button()
+
+    def record_message(self, message: AgentMessage) -> None:
+        """assistant MESSAGE_END 时登记完整消息，供页卸载后重新渲染。"""
+        if self._rendering_history or not isinstance(message, AssistantMessage):
+            return
+        self._history.append(message)
+        if self._pending_tool_results:
+            self._history.extend(self._pending_tool_results)
+            self._pending_tool_results.clear()
+        if self._current_page is not None:
+            self._current_page.end = len(self._history)
+
+    def _record_tool_result(self, ev: AgentToolExecutionEndEvent) -> None:
+        if self._rendering_history:
+            return
+        self._pending_tool_results.append(
+            ToolResultMessage(
+                tool_call_id=ev.tc_id,
+                tool_name=ev.tool_name,
+                content=[TextContent(text=ev.tool_result)],
+                timestamp=get_timestamp_ms(),
+                is_success=ev.is_success,
+            )
+        )
+
+    def discard_pending_tool_results(self) -> None:
+        """运行中断时丢弃没有对应 assistant 消息的孤立工具结果。"""
+        self._pending_tool_results.clear()
 
     @staticmethod
     def _extract_user_text(msg: UserMessage) -> str:
@@ -172,8 +385,23 @@ class ConversationView(VerticalScroll):
         wrapper = Vertical(bubble, meta, classes="user-msg-wrapper")
         row = Horizontal(wrapper, classes="user-msg-row")
 
-        await self.mount(row)
-        self.scroll_end(animate=False)
+        if not self._rendering_history:
+            # 本会话新消息：登记到 _history，供页卸载后重新渲染
+            self._follow_tail = True
+            self._history.append(
+                UserMessage(
+                    content=[TextContent(text=text)],
+                    timestamp=(
+                        timestamp_ms
+                        if timestamp_ms is not None
+                        else get_timestamp_ms()
+                    ),
+                )
+            )
+            await self._ensure_live_page()
+
+        await self._mount(row)
+        self._scroll_to_end()
 
     # ---------------------------- 流式 thinking ---------------------------- #
     async def _on_think_start(self) -> None:
@@ -192,8 +420,8 @@ class ConversationView(VerticalScroll):
                 collapsed_symbol="",
                 expanded_symbol="",
             )
-            await self.mount(self._thinking_collapsible)
-            self.scroll_end(animate=False)
+            await self._mount(self._thinking_collapsible)
+            self._scroll_to_end()
         self._thinking_buf.append(text)
         self._thinking_dirty = True
 
@@ -231,29 +459,79 @@ class ConversationView(VerticalScroll):
             return  # 纯 \n\r\t / 零宽 / 控制字符：不 mount、不刷新
         if self._stream_md is None:
             self._stream_md = Markdown("", classes="agent-msg")
-            await self.mount(self._stream_md)
-            self.scroll_end(animate=False)
+            await self._mount(self._stream_md)
+            self._scroll_to_end()
         self._stream_dirty = True
 
     async def _on_text_end(self) -> None:
         await self._finalize_text()
 
     async def _finalize_text(self) -> None:
-        # 把最后一批 token 刷出去
-        if self._stream_md is not None and self._stream_buf:
-            await self._stream_md.update("".join(self._stream_buf))
+        """刷出剩余 token；等待上一次增量解析，避免任务在后台堆积。"""
+        md = self._stream_md
+        if md is not None:
+            pending = self._stream_pending
+            if pending is not None:
+                try:
+                    await pending
+                except Exception:  # noqa: BLE001 - 单个 Markdown 块失败不应中断对话
+                    self.log.error("Markdown 增量解析失败", exc_info=True)
+                finally:
+                    self._stream_pending = None
+            text = "".join(self._stream_buf)
+            if self._stream_error:
+                # 增量解析失败过：收尾时全量重解析一次，保证正文完整
+                try:
+                    await md.update(text)
+                except Exception:  # noqa: BLE001
+                    self.log.error("Markdown 全量重解析失败", exc_info=True)
+            elif len(text) > self._stream_sent:
+                try:
+                    await md.append(text[self._stream_sent:])
+                except Exception:  # noqa: BLE001
+                    self.log.error("Markdown 收尾解析失败", exc_info=True)
+                self._stream_sent = len(text)
         # 重置：下一次 TEXT_DELTA 会创建新的 Markdown 区域
         self._stream_md = None
         self._stream_buf.clear()
+        self._stream_sent = 0
+        self._stream_pending = None
+        self._stream_error = False
         self._stream_dirty = False
 
     # ---------------------------- 节流刷新 ---------------------------- #
     def _flush_stream(self) -> None:
         """interval 回调：同时刷新正文和 thinking，并在有更新时跟进滚动。"""
+        if not self.display:
+            return  # 隐藏的会话不参与布局/重排，切回来后的 tick 会继续刷
+
         scrolled = False
         if self._stream_dirty and self._stream_md is not None:
+            pending = self._stream_pending
+            if pending is not None and not pending.is_done:
+                # 上一次增量解析还没结束：本轮跳过，buffer 继续累积，避免任务堆叠
+                return
+            if pending is not None:
+                self._stream_pending = None
+                if pending.exception is not None:
+                    self.log.error("Markdown 增量解析失败: %r", pending.exception)
+                    self._stream_error = True
+                    self._stream_dirty = False
+                    return
+
+            text = "".join(self._stream_buf)
+            if len(text) > self._stream_sent:
+                try:
+                    # 只解析新增片段（Textual 会复用/更新最后一个未闭合块），
+                    # 比每次 update(全文) 的 O(n) 重排便宜一个数量级
+                    self._stream_pending = self._stream_md.append(
+                        text[self._stream_sent:]
+                    )
+                    self._stream_sent = len(text)
+                except Exception:  # noqa: BLE001
+                    self.log.error("Markdown 增量解析失败", exc_info=True)
+                    self._stream_error = True
             self._stream_dirty = False
-            self._stream_md.update("".join(self._stream_buf))
             scrolled = True
 
         if self._thinking_dirty and self._thinking_static is not None:
@@ -263,13 +541,27 @@ class ConversationView(VerticalScroll):
 
         # 滚动收敛到刷新 tick：由每事件一次降为 20fps 一次
         if scrolled:
-            self.scroll_end(animate=False)
+            self._scroll_to_end()
+
+    def _scroll_to_end(self) -> None:
+        """历史重建期间、用户回看时或视图隐藏时，不强制跟随底部。"""
+        if self._suppress_scroll or not self._follow_tail or not self.display:
+            return
+        self.scroll_end(animate=False)
+
+    def watch_scroll_y(self, old_value: float, new_value: float) -> None:
+        super().watch_scroll_y(old_value, new_value)
+        # 距底部 2 行以内视为“跟随中”，超过则用户正在回看历史
+        self._follow_tail = new_value >= self.max_scroll_y - 2
 
     def reset_stream(self) -> None:
         # 正文
         self._stream_md = None
         self._stream_buf.clear()
         self._stream_dirty = False
+        self._stream_sent = 0
+        self._stream_pending = None
+        self._stream_error = False
 
         # thinking
         self._thinking_static = None
@@ -279,7 +571,8 @@ class ConversationView(VerticalScroll):
 
     async def finalize_stream(self) -> None:
         """一轮对话结束后：刷出残留 token 并重置流式状态。"""
-        self._flush_stream()
+        await self._finalize_thinking()
+        await self._finalize_text()
         self.reset_stream()
 
     # ---------------------------- 工具执行 ---------------------------- #
@@ -324,8 +617,8 @@ class ConversationView(VerticalScroll):
         call_id = getattr(ev, "tc_id", ev.tool_name)
         self._running_tools[call_id] = collapsible
 
-        await self.mount(collapsible)
-        self.scroll_end(animate=False)
+        await self._mount(collapsible)
+        self._scroll_to_end()
 
     async def _on_tool_execution_end(self, ev: AgentToolExecutionEndEvent) -> None:
         call_id = getattr(ev, "tc_id", ev.tool_name)
@@ -371,7 +664,7 @@ class ConversationView(VerticalScroll):
                 pass
         else:
             title = f"[bold {color}]{icon}[/] [bold]{escape(ev.tool_name)}[/]"
-            await self.mount(
+            await self._mount(
                 Collapsible(
                     Static(result_visual, classes="tool-result-body"),
                     title=title,
@@ -382,13 +675,21 @@ class ConversationView(VerticalScroll):
                 )
             )
 
-        self.scroll_end(animate=False)
+        self._scroll_to_end()
 
     # ---------------------------- 清空 ---------------------------- #
     async def clear(self) -> None:
         """清空消息并重置所有渲染状态。"""
         self._running_tools.clear()
         self.reset_stream()
+        self._history.clear()
+        self._pages.clear()
+        self._current_page = None
+        self._mount_target = None
+        self._rendering_history = False
+        self._pending_tool_results.clear()
+        self._suppress_scroll = False
+        self._follow_tail = True
         await self.remove_children()
 
 
